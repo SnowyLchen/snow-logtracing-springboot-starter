@@ -7,15 +7,15 @@
     <url>https://github.com/SnowyLchen/snow-logtracing-springboot-starter</url>
     <groupId>io.github.snowylchen</groupId>
     <artifactId>snow-logtracing-springboot-starter</artifactId>
-    <version>1.0.0-jdk17</version>
+    <version>1.0.0-jdk8</version>
     <packaging>jar</packaging>
     <description>基于aop实现的系统日志以及脱敏插件，引入即用</description>
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <compiler.source>17</compiler.source>
-        <springboot.version>3.2.0</springboot.version>
+        <compiler.source>1.8</compiler.source>
+        <springboot.version>2.7.9</springboot.version>
         <hibernate-validator.version>8.0.1.Final</hibernate-validator.version>
         <fastjson2.version>2.0.31</fastjson2.version>
         <lombok.version>1.18.26</lombok.version>
