@@ -1,4 +1,4 @@
-package com.snow.logtracing.config;
+package io.github.snowylchen.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -14,7 +14,6 @@ import java.util.List;
  * @date 2024/03/18
  */
 @Data
-@Component
 @ConfigurationProperties(prefix = "snow.logtracing")
 public class LogTracingProperties {
 

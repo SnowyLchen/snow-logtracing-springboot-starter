@@ -14,10 +14,10 @@
  *  this software without specific prior written permission.
  *  Author: DreamLu 卢春梦 (596392912@qq.com)
  */
-package com.snow.logtracing.util;
+package io.github.snowylchen.util;
 
 import cn.hutool.core.util.ObjectUtil;
-import com.snow.logtracing.constants.StringPool;
+import io.github.snowylchen.constants.StringPool;
 import org.springframework.lang.Nullable;
 import org.springframework.util.PatternMatchUtils;
 import org.springframework.web.util.HtmlUtils;

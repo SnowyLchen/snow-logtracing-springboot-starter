@@ -1,4 +1,4 @@
-package com.snow.logtracing.util;
+package io.github.snowylchen.util;
 
 import java.lang.reflect.Array;
 

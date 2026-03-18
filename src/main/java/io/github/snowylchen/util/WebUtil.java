@@ -14,23 +14,18 @@
  *  this software without specific prior written permission.
  *  Author: DreamLu 卢春梦 (596392912@qq.com)
  */
-package com.snow.logtracing.util;
+package io.github.snowylchen.util;
 
 import com.alibaba.fastjson2.JSON;
-import com.snow.logtracing.constants.StringPool;
+import io.github.snowylchen.constants.StringPool;
+import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.lang.Nullable;
-import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
-import org.springframework.web.context.request.RequestAttributes;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
-import javax.servlet.ServletInputStream;
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -55,65 +50,12 @@ public class WebUtil extends org.springframework.web.util.WebUtils {
     public static final String LOCAL_HOST = "127.0.0.1";
 
     /**
-     * 读取cookie
-     *
-     * @param name cookie name
-     * @return cookie value
-     */
-    @Nullable
-    public static String getCookieVal(String name) {
-        HttpServletRequest request = WebUtil.getRequest();
-        Assert.notNull(request, "request from RequestContextHolder is null");
-        return getCookieVal(request, name);
-    }
-
-    /**
-     * 读取cookie
-     *
-     * @param request HttpServletRequest
-     * @param name    cookie name
-     * @return cookie value
-     */
-    @Nullable
-    public static String getCookieVal(HttpServletRequest request, String name) {
-        Cookie cookie = getCookie(request, name);
-        return cookie != null ? cookie.getValue() : null;
-    }
-
-    /**
-     * 清除 某个指定的cookie
-     *
-     * @param response HttpServletResponse
-     * @param key      cookie key
-     */
-    public static void removeCookie(HttpServletResponse response, String key) {
-        setCookie(response, key, null, 0);
-    }
-
-    /**
-     * 设置cookie
-     *
-     * @param response        HttpServletResponse
-     * @param name            cookie name
-     * @param value           cookie value
-     * @param maxAgeInSeconds maxage
-     */
-    public static void setCookie(HttpServletResponse response, String name, @Nullable String value, int maxAgeInSeconds) {
-        Cookie cookie = new Cookie(name, value);
-        cookie.setPath(StringPool.SLASH);
-        cookie.setMaxAge(maxAgeInSeconds);
-        cookie.setHttpOnly(true);
-        response.addCookie(cookie);
-    }
-
-    /**
      * 获取 HttpServletRequest
      *
      * @return {HttpServletRequest}
      */
     public static HttpServletRequest getRequest() {
-        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
-        return (requestAttributes == null) ? null : ((ServletRequestAttributes) requestAttributes).getRequest();
+        return LogServletUtils.getHttpServletRequest();
     }
 
     /**

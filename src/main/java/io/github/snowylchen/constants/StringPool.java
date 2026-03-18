@@ -14,7 +14,7 @@
  *  this software without specific prior written permission.
  *  Author: DreamLu 卢春梦 (596392912@qq.com)
  */
-package com.snow.logtracing.constants;
+package io.github.snowylchen.constants;
 
 /**
  * 静态 String 池

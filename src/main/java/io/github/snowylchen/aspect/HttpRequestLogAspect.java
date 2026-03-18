@@ -1,13 +1,16 @@
-package com.snow.logtracing.aspect;
+package io.github.snowylchen.aspect;
 
 import cn.hutool.core.date.DateUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.filter.SimplePropertyPreFilter;
-import com.snow.logtracing.config.LogTracingProperties;
-import com.snow.logtracing.util.FunExecuteTimeUtil;
-import com.snow.logtracing.util.LogServletUtils;
-import com.snow.logtracing.util.WebUtil;
+import io.github.snowylchen.config.LogTracingProperties;
+import io.github.snowylchen.util.FunExecuteTimeUtil;
+import io.github.snowylchen.util.LogServletUtils;
+import io.github.snowylchen.util.WebUtil;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.Signature;
@@ -26,16 +29,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletResponse;
-import javax.servlet.http.HttpServletRequest;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.text.MessageFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static com.snow.logtracing.util.LogUtil.*;
+import static io.github.snowylchen.util.LogUtil.*;
 
 @Aspect
 @Component
@@ -46,12 +46,12 @@ public class HttpRequestLogAspect {
      * 方法行号缓存，避免重复解析字节码
      */
     private static final ConcurrentHashMap<String, Integer> METHOD_LINE_CACHE = new ConcurrentHashMap<>();
-    
+
     /**
      * 日志配置属性
      */
     private static LogTracingProperties logTracingProperties;
-    
+
     @Autowired(required = false)
     public void setLogTracingProperties(LogTracingProperties logTracingProperties) {
         HttpRequestLogAspect.logTracingProperties = logTracingProperties;
@@ -67,43 +67,43 @@ public class HttpRequestLogAspect {
     public static StringBuilder buildRequestLog(JoinPoint joinPoint, HttpServletRequest request, Signature signature, String name) {
         StringBuilder logBuffer = LOG_BUFFER.get();
         logBuffer.setLength(0);
-        
+
         // 检查是否启用日志追踪
         if (logTracingProperties != null && Boolean.FALSE.equals(logTracingProperties.getEnable())) {
             return logBuffer;
         }
-        
+
         // 构建请求开始信息
         logBuffer.append(requestLog(REQUEST_START)).append("\n");
         ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
-        
+
         // 根据配置动态添加字段
         if (logTracingProperties == null || logTracingProperties.needOutput("requestUrl")) {
             map.put("请求地址", request.getMethod() + " " + request.getRequestURL().toString());
         }
-        
+
         if (logTracingProperties == null || logTracingProperties.needOutput("methodInfo")) {
             map.put("类名方法", "(" + signature.getDeclaringTypeName() + "#" + name + ")");
         }
-        
+
         // 获取方法的真实行号
         int lineNumber = getMethodLineNumber(signature);
         if (logTracingProperties == null || logTracingProperties.needOutput("lineInfo")) {
             map.put("类名快捷跳转", "(" + signature.getDeclaringType().getSimpleName() + ".java:" + lineNumber + ")");
         }
-        
+
         if (logTracingProperties == null || logTracingProperties.needOutput("remoteIp")) {
             map.put("远程地址", getRemoteIp(request));
         }
-        
+
         if (logTracingProperties == null || logTracingProperties.needOutput("headers")) {
             map.put("请求头信息", extractHeadersInfo(request));
         }
-        
+
         if (logTracingProperties == null || logTracingProperties.needOutput("params")) {
             map.put("请求的参数", buildRequestParam(joinPoint));
         }
-        
+
         // 构建彩色的时间戳和线程信息
         for (Map.Entry<String, String> mp : map.entrySet()) {
             logBuffer.append(buildThreadLog())
@@ -193,7 +193,7 @@ public class HttpRequestLogAspect {
         if (logTracingProperties != null && Boolean.FALSE.equals(logTracingProperties.getEnable())) {
             return proceedingJoinPoint.proceed();
         }
-        return printHttpRequestLogFormat(LogServletUtils.getRequest(), proceedingJoinPoint, proceedingJoinPoint::proceed);
+        return printHttpRequestLogFormat(proceedingJoinPoint, proceedingJoinPoint::proceed);
     }
 
     /**
@@ -245,7 +245,7 @@ public class HttpRequestLogAspect {
     private static String extractHeadersInfo(HttpServletRequest request) {
         // 逐行打印请求头信息
         Enumeration<String> headerNames = request.getHeaderNames();
-        
+
         // 获取需要排除的 Header 列表（默认 + 自定义）
         List<String> excludeHeaderList = new ArrayList<>();
         if (logTracingProperties != null) {
@@ -260,7 +260,7 @@ public class HttpRequestLogAspect {
             excludeHeaderList.add("accept-language");
             excludeHeaderList.add("upgrade-insecure-requests");
         }
-        
+
         JSONObject headers = new JSONObject();
         while (headerNames.hasMoreElements()) {
             String key = headerNames.nextElement();
@@ -288,7 +288,7 @@ public class HttpRequestLogAspect {
             excludeProperties.add("token");
             excludeProperties.add("secret");
         }
-        
+
         SimplePropertyPreFilter filters = new SimplePropertyPreFilter();
         for (String str : excludeProperties) {
             filters.getExcludes().add(str);
@@ -300,18 +300,19 @@ public class HttpRequestLogAspect {
     /**
      * 打印请求日志
      */
-    private static <T> T printHttpRequestLogFormat(HttpServletRequest request, JoinPoint joinPoint, FunExecuteTimeUtil.CalculateTimeInterFace<T> calculateTimeInterFace) throws Throwable {
+    private static <T> T printHttpRequestLogFormat(JoinPoint joinPoint, FunExecuteTimeUtil.CalculateTimeInterFace<T> calculateTimeInterFace) throws Throwable {
+        HttpServletRequest request = LogServletUtils.getHttpServletRequest();
         long startTime = System.currentTimeMillis();
         Signature signature = joinPoint.getSignature();
         String name = signature.getName();
         StringBuilder requestThreadLog = buildRequestLog(joinPoint, request, signature, name);
         T result = calculateTimeInterFace.execute();
         requestThreadLog.setLength(0);
-        
+
         // 检查是否需要输出响应结果
-        boolean needResponse = (logTracingProperties == null || 
-                               logTracingProperties.needOutput("response")) && (result != null);
-        
+        boolean needResponse = (logTracingProperties == null ||
+                logTracingProperties.needOutput("response")) && (result != null);
+
         if (needResponse) {
             requestThreadLog
                     .append("返回的结果:")
@@ -320,12 +321,12 @@ public class HttpRequestLogAspect {
                     .append(buildThreadLog())
             ;
         }
-        
+
         // 检查是否需要输出耗时信息
         if (logTracingProperties == null || logTracingProperties.needOutput("costTime")) {
             requestThreadLog.append(MessageFormat.format(requestLog("请求结束 " + request.getRequestURI() + REQUEST_END), System.currentTimeMillis() - startTime));
         }
-        
+
         requestThreadLog.append("\n\n");
         LOG.info(requestThreadLog.toString());
         return result;

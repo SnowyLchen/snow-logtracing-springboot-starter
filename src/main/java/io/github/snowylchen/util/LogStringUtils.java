@@ -1,4 +1,4 @@
-package com.snow.logtracing.util;
+package io.github.snowylchen.util;
 
 import java.util.Map;
 import java.util.Objects;

@@ -1,8 +1,8 @@
-package com.snow.logtracing.util;
+package io.github.snowylchen.util;
 
 import lombok.extern.slf4j.Slf4j;
 
-import static com.snow.logtracing.util.LogUtil.requestLog;
+import static io.github.snowylchen.util.LogUtil.requestLog;
 
 /**
  * 执行时间工具

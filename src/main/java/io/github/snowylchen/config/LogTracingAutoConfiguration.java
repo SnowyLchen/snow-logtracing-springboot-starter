@@ -1,9 +1,12 @@
-package com.snow.logtracing.config;
+package io.github.snowylchen.config;
 
-import com.snow.logtracing.aspect.HttpRequestLogAspect;
+import io.github.snowylchen.aspect.HttpRequestLogAspect;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 
@@ -13,18 +16,14 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
  * @author chen
  * @date 2024/03/18
  */
-@Configuration
-@EnableAspectJAutoProxy
+@AutoConfiguration
+@EnableAspectJAutoProxy(proxyTargetClass = true)
+@ComponentScan(basePackages = "io.github.snowylchen")
 @ConditionalOnProperty(prefix = "snow.logtracing", name = "enable", havingValue = "true", matchIfMissing = true)
+@EnableConfigurationProperties(LogTracingProperties.class)
 public class LogTracingAutoConfiguration {
 
     @Bean
-    public LogTracingProperties logTracingProperties() {
-        return new LogTracingProperties();
-    }
-
-    @Bean
-    @Autowired(required = false)
     public HttpRequestLogAspect httpRequestLogAspect(LogTracingProperties logTracingProperties) {
         HttpRequestLogAspect aspect = new HttpRequestLogAspect();
         aspect.setLogTracingProperties(logTracingProperties);

@@ -1,6 +1,6 @@
-package com.snow.logtracing.model;
+package io.github.snowylchen.model;
 
-import com.snow.logtracing.util.WebUtil;
+import io.github.snowylchen.util.WebUtil;
 import lombok.Getter;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;

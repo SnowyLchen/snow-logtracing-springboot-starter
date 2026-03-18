@@ -1,7 +1,7 @@
-package com.snow.logtracing.util;
+package io.github.snowylchen.util;
 
 import cn.hutool.core.util.ObjectUtil;
-import com.snow.logtracing.constants.StringPool;
+import io.github.snowylchen.constants.StringPool;
 
 import java.util.ArrayList;
 import java.util.List;

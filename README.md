@@ -201,7 +201,7 @@ snow:
 
 ```
 ========================== 请求开始 ==========================
-2024-03-18 10:30:45 [http-nio-8080-exec-1] com.snow.logtracing.aspect.HttpRequestLogAspect : 
+2024-03-18 10:30:45 [http-nio-8080-exec-1] aspect.io.github.snowylchen.HttpRequestLogAspect : 
 请求地址：GET http://localhost:8080/api/user/123
 类名方法：(com.example.controller.UserController#getUserById)
 类名快捷跳转：(UserController.java:45)
