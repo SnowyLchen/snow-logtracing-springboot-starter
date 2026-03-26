@@ -270,45 +270,55 @@ public class ThreadPoolConfig {
 snow:
   logtracing:
     # ===== 基础配置 =====
-    enable: true                    # 总开关，默认 true
+    enable: true                    # 总开关，控制整个 starter 是否激活，默认 true
 
-    # 需要输出的日志字段，不配置则输出所有字段
+    # 需要输出的日志字段，不配置则输出所有字段，支持通配符 *
     fields:
-      - requestUrl                  # 请求地址
-      - methodInfo                  # 类名方法
-      - lineInfo                    # 类名快捷跳转（行号）
-      - remoteIp                    # 远程地址
-      - headers                     # 请求头信息
-      - params                      # 请求的参数
-      - response                    # 返回的结果
+      - requestUrl                  # 请求地址（如 GET http://localhost:8080/api/user）
+      - methodInfo                  # 类名方法（如 UserController#getUser）
+      - lineInfo                    # 类名快捷跳转，IDE 可点击（如 UserController.java:45）
+      - remoteIp                    # 客户端远程 IP 地址
+      - headers                     # 请求头信息（已排除无关 header，已脱敏）
+      - params                      # 请求参数（JSON 格式，已脱敏）
+      - response                    # 返回结果（JSON 格式，已脱敏）
       - costTime                    # 耗时信息
 
-    # 敏感信息脱敏字段（在默认 password/token/secret/credentials/privateKey 基础上追加）
+    # 敏感信息脱敏字段（追加到内置的 password/token/secret/credentials/privateKey 之上）
     sensitive-fields:
-      - idCard
+      - idCard                      # 自定义脱敏字段
       - phone
       - bankCard
 
-    # 排除的 Header（在默认 content-length/connection/accept 等基础上追加）
+    # 排除的请求头（追加到内置的 content-length/connection/accept 等之上）
     exclude-headers:
-      - authorization
+      - authorization               # 自定义排除 header
       - cookie
 
-    # ===== 追踪配置 =====
+    # ===== 模块一：接口计时统计 =====
+    # 独立控制请求耗时测量和慢接口检测，与追踪模块互不影响
+    timing:
+      enabled: true                 # 计时功能开关，默认 true
+      slow-threshold: -1            # 慢接口阈值（毫秒），超过此值标记为慢接口并警告，-1 表示不检测
+
+    # ===== 模块二：分布式追踪 =====
+    # 独立控制 TraceId/Span 链路追踪，与计时模块互不影响
     trace:
       enabled: true                 # 追踪功能开关，默认 true
-      sample-rate: 1.0              # 采样率 0.0-1.0，默认 1.0 全采样
+      auto-trace-service: false     # 自动追踪 Service 层（*..service..*Service）方法，默认关闭
+      span-tree-log: true           # 请求结束时输出 Span 树状调用链汇总，默认 true
 
-    # ===== 跨服务传播配置 =====
-    propagation:
-      enabled: true                 # 跨服务传播开关，默认 true
-      rest-template: true           # 拦截 RestTemplate 调用，默认 true
-      feign: false                  # 拦截 Feign 调用，默认 false（需要 classpath 中有 Feign 依赖）
+      # 跨服务传播配置（仅追踪模块生效时有意义）
+      propagation:
+        rest-template: true         # 自动为 RestTemplate 注入追踪 header，默认 true
+        feign: false                # 自动为 Feign 注入追踪 header，默认 false（需 classpath 有 Feign）
 
-    # ===== 异步支持配置 =====
-    async:
-      enabled: true                 # 异步上下文传递，默认 true
+      # 异步线程上下文传递
+      async:
+        enabled: true               # 提供 TaskDecorator Bean，用于线程池传递 traceId，默认 true
 ```
+
+> **配置独立性**：`timing` 和 `trace` 是两个独立模块，各自有开关和参数，互不影响。
+> 可以只开 timing（轻量计时）、只开 trace（链路追踪）、或同时开启（完整体验）。
 
 ### 字段通配符
 
@@ -435,7 +445,7 @@ public ThreadPoolTaskExecutor taskExecutor(TraceContextTaskDecorator decorator) 
 检查以下几点：
 - 下游服务是否也引入了本组件
 - 调用方使用的是否是 Spring 容器管理的 `RestTemplate` Bean（`new RestTemplate()` 创建的不会被自动拦截）
-- 如果使用 Feign，需要配置 `snow.logtracing.propagation.feign: true`
+- 如果使用 Feign，需要配置 `snow.logtracing.trace.propagation.feign: true`
 
 ### Q6: 如何获取当前请求的 traceId？
 
@@ -470,6 +480,21 @@ String spanId = TraceContext.currentSpanId();
 
 ## 更新日志
 
+### v1.2.0
+
+**配置架构升级：**
+- 接口计时统计（timing）和分布式追踪（trace）拆分为独立配置模块，各自拥有独立开关和参数
+- 新增 `timing` 配置节点：`enabled`（开关）、`slow-threshold`（慢接口阈值）
+- 新增 `trace.span-tree-log` 配置，控制 Span 树汇总日志的输出
+- `propagation` 和 `async` 配置从顶层迁移至 `trace` 下（`trace.propagation.*`、`trace.async.*`）
+- 仅开启 timing 时自动生成 `requestId` 写入 MDC，方便日志关联
+- 自动配置拆分为 `LogTracingAutoConfiguration`（公共层）和 `TraceAutoConfiguration`（追踪模块）
+- 移除 `@ComponentScan`，所有 bean 由 AutoConfiguration 显式注册管理
+
+**Breaking Change：**
+- 配置路径变更：`snow.logtracing.propagation.*` -> `snow.logtracing.trace.propagation.*`
+- 配置路径变更：`snow.logtracing.async.*` -> `snow.logtracing.trace.async.*`
+
 ### v1.1.0
 
 **新增功能：**
@@ -481,7 +506,6 @@ String spanId = TraceContext.currentSpanId();
 - 新增 RestTemplateTraceInterceptor，支持 RestTemplate 跨服务追踪
 - 新增 FeignTraceInterceptor，支持 Feign 跨服务追踪
 - 新增 TraceContextTaskDecorator，支持异步线程追踪上下文传递
-- 新增采样率配置 `trace.sample-rate`
 
 **改进：**
 - 计时逻辑从 AOP 切面迁移到 Filter，解决计时包含日志构建开销的问题
@@ -503,6 +527,46 @@ String spanId = TraceContext.currentSpanId();
 - 支持敏感信息脱敏
 - 支持方法真实行号定位（ASM + 缓存）
 - 支持彩色日志输出
+
+## 开源协议
+
+[Apache License 2.0](LICENSE)
+
+## 作者信息
+
+- **Author**: snowylchen
+- **Email**: 491429856@qq.com
+- **GitHub**: [SnowyLchen/snow-logtracing-springboot-starter](https://github.com/SnowyLchen/snow-logtracing-springboot-starter)
+
+## 作者信息
+
+- **Author**: snowylchen
+- **Email**: 491429856@qq.com
+- **GitHub**: [SnowyLchen/snow-logtracing-springboot-starter](https://github.com/SnowyLchen/snow-logtracing-springboot-starter)
+- **GitHub**: [SnowyLchen/snow-logtracing-springboot-starter](https://github.com/SnowyLchen/snow-logtracing-springboot-starter)
+- 支持自定义敏感信息脱敏规则（sensitive-fields 配置）
+- 支持排除特定 Header 信息（exclude-headers 配置）
+- 支持通配符 `*` 配置日志字段输出
+- 新增配置属性类 LogTracingProperties
+- 新增自动配置类 LogTracingAutoConfiguration
+
+### v1.0.0
+
+- 初始版本发布
+- 支持 Controller 层自动日志记录
+- 支持敏感信息脱敏
+- 支持方法真实行号定位（ASM + 缓存）
+- 支持彩色日志输出
+
+## 开源协议
+
+[Apache License 2.0](LICENSE)
+
+## 作者信息
+
+- **Author**: snowylchen
+- **Email**: 491429856@qq.com
+- **GitHub**: [SnowyLchen/snow-logtracing-springboot-starter](https://github.com/SnowyLchen/snow-logtracing-springboot-starter)
 
 ## 开源协议
 

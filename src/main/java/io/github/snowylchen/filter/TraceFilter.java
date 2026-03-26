@@ -19,11 +19,19 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * 追踪过滤器，作为请求入口负责：
- * 1. 生成/提取 TraceId 和 SpanId
- * 2. 写入 MDC 使日志自动携带追踪信息
- * 3. 使用 System.nanoTime() 精确计时
- * 4. 响应头回写 X-Trace-Id
+ * 请求观测过滤器，根据配置独立或协同提供两大能力：
+ * <ul>
+ *     <li><b>接口计时统计</b>（timing）：精确计算请求耗时，慢接口检测</li>
+ *     <li><b>分布式追踪</b>（trace）：生成/传播 TraceId，构建 Span 树，MDC 集成</li>
+ * </ul>
+ * <p>
+ * 四种运行模式：
+ * <ol>
+ *     <li>timing ON + trace ON：完整体验，Span 树 + 精确计时 + 慢接口检测</li>
+ *     <li>timing ON + trace OFF：生成 requestId 写入 MDC，输出简洁计时摘要</li>
+ *     <li>timing OFF + trace ON：创建 TraceContext + Span 树（Span 自带耗时）</li>
+ *     <li>timing OFF + trace OFF：Filter 不注册（由 AutoConfiguration 控制）</li>
+ * </ol>
  *
  * @author chen
  */
@@ -37,6 +45,7 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
 
     public static final String MDC_TRACE_ID = "traceId";
     public static final String MDC_SPAN_ID = "spanId";
+    public static final String MDC_REQUEST_ID = "requestId";
 
     private final LogTracingProperties properties;
 
@@ -46,63 +55,98 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
 
     @Override
     public int getOrder() {
-        // 确保在其他 Filter 之前执行
         return Ordered.HIGHEST_PRECEDENCE + 10;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        // 从请求头提取或生成 TraceId
-        String traceId = request.getHeader(HEADER_TRACE_ID);
-        if (traceId == null || traceId.trim().isEmpty()) {
-            traceId = TraceIdGenerator.generateTraceId();
+        boolean timingEnabled = properties.getTiming().isEnabled();
+        boolean tracingEnabled = properties.getTrace().isEnabled();
+
+        // === 计时模块：记录起始时间 ===
+        long startNanos = 0;
+        if (timingEnabled) {
+            startNanos = System.nanoTime();
         }
 
-        // 从请求头提取 ParentSpanId（跨服务场景）
-        String parentSpanId = request.getHeader(HEADER_SPAN_ID);
+        // === 追踪模块：创建 TraceContext 和根 Span ===
+        TraceContext context = null;
+        SpanInfo rootSpan = null;
+        String requestId = null;
 
-        // 创建追踪上下文
-        TraceContext context = new TraceContext(traceId);
-        TraceContext.setCurrent(context);
+        if (tracingEnabled) {
+            // 从请求头提取或生成 TraceId
+            String traceId = request.getHeader(HEADER_TRACE_ID);
+            if (traceId == null || traceId.trim().isEmpty()) {
+                traceId = TraceIdGenerator.generateTraceId();
+            }
 
-        // 写入 MDC
-        MDC.put(MDC_TRACE_ID, traceId);
+            // 从请求头提取 ParentSpanId（跨服务场景）
+            String parentSpanId = request.getHeader(HEADER_SPAN_ID);
 
-        // 创建根 Span
-        String operationName = request.getMethod() + " " + request.getRequestURI();
-        SpanInfo rootSpan = context.startSpan(operationName, SpanKind.SERVER);
-        rootSpan.addTag("http.method", request.getMethod());
-        rootSpan.addTag("http.url", request.getRequestURL().toString());
-        if (parentSpanId != null && !parentSpanId.trim().isEmpty()) {
-            rootSpan.addTag("parent.span.id", parentSpanId);
+            // 创建追踪上下文
+            context = new TraceContext(traceId);
+            TraceContext.setCurrent(context);
+
+            // 写入 MDC
+            MDC.put(MDC_TRACE_ID, traceId);
+
+            // 创建根 Span
+            String operationName = request.getMethod() + " " + request.getRequestURI();
+            rootSpan = context.startSpan(operationName, SpanKind.SERVER);
+            rootSpan.addTag("http.method", request.getMethod());
+            rootSpan.addTag("http.url", request.getRequestURL().toString());
+            if (parentSpanId != null && !parentSpanId.trim().isEmpty()) {
+                rootSpan.addTag("parent.span.id", parentSpanId);
+            }
+
+            MDC.put(MDC_SPAN_ID, rootSpan.getSpanId());
+
+            // 响应头回写 TraceId
+            response.setHeader(HEADER_TRACE_ID, traceId);
+        } else if (timingEnabled) {
+            // 仅计时模式：生成 requestId 写入 MDC，方便日志关联
+            requestId = TraceIdGenerator.generateSpanId();
+            MDC.put(MDC_REQUEST_ID, requestId);
         }
-
-        MDC.put(MDC_SPAN_ID, rootSpan.getSpanId());
-
-        // 响应头回写 TraceId，方便前端/调用方关联
-        response.setHeader(HEADER_TRACE_ID, traceId);
 
         try {
-            // 精确计时：只包裹 filterChain.doFilter
             filterChain.doFilter(request, response);
         } catch (Exception e) {
-            rootSpan.markError(e.getMessage());
+            if (rootSpan != null) {
+                rootSpan.markError(e.getMessage());
+            }
             throw e;
         } finally {
-            // 结束根 Span
-            context.finishSpan();
-            rootSpan.addTag("http.status", String.valueOf(response.getStatus()));
+            // === 追踪模块：结束根 Span ===
+            if (tracingEnabled && context != null) {
+                context.finishSpan();
+                rootSpan.addTag("http.status", String.valueOf(response.getStatus()));
+            }
 
-            // 输出追踪汇总日志
-            printTraceSummary(context, rootSpan);
+            // === 计算耗时 ===
+            long durationMs = -1;
+            if (timingEnabled) {
+                durationMs = (System.nanoTime() - startNanos) / 1_000_000;
+            }
 
-            // 清理，防止 ThreadLocal 泄漏
-            MDC.remove(MDC_TRACE_ID);
-            MDC.remove(MDC_SPAN_ID);
-            TraceContext.clear();
+            // === 输出汇总日志 ===
+            printSummary(request, response, context, rootSpan, requestId, durationMs, timingEnabled, tracingEnabled);
+
+            // === 清理 ===
+            if (tracingEnabled) {
+                MDC.remove(MDC_TRACE_ID);
+                MDC.remove(MDC_SPAN_ID);
+                TraceContext.clear();
+            }
+            if (!tracingEnabled && timingEnabled) {
+                MDC.remove(MDC_REQUEST_ID);
+            }
         }
     }
+
+    // ========================== 日志输出 ==========================
 
     // ANSI 颜色常量
     private static final String RESET = "\u001B[0m";
@@ -116,14 +160,33 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
     private static final String BORDER = GRAY + "═══════════════════════════════════════════════════════════════════════" + RESET;
 
     /**
-     * 输出追踪调用链汇总日志
+     * 根据 timing/trace 开启状态输出不同格式的汇总日志
      */
-    private void printTraceSummary(TraceContext context, SpanInfo rootSpan) {
-        if (properties != null && Boolean.FALSE.equals(properties.getEnable())) {
+    private void printSummary(HttpServletRequest request, HttpServletResponse response,
+                              TraceContext context, SpanInfo rootSpan, String requestId,
+                              long durationMs, boolean timingEnabled, boolean tracingEnabled) {
+        if (tracingEnabled && context != null && rootSpan != null) {
+            // 追踪模式（含或不含计时）
+            printTraceSummary(context, rootSpan, durationMs, timingEnabled);
+        } else if (timingEnabled) {
+            // 仅计时模式
+            String operationName = request.getMethod() + " " + request.getRequestURI();
+            printTimingSummary(requestId, operationName, response.getStatus(), durationMs);
+        }
+    }
+
+    /**
+     * 追踪模式：输出完整的 Span 树汇总（含 traceId、Span 树、可选慢接口警告）
+     */
+    private void printTraceSummary(TraceContext context, SpanInfo rootSpan,
+                                   long timingDurationMs, boolean timingEnabled) {
+        if (!properties.getTrace().isSpanTreeLog()) {
             return;
         }
 
-        long durationMs = rootSpan.getDurationMs();
+        // 耗时：优先使用 TimingFilter 的精确计时，否则使用根 Span 的耗时
+        long durationMs = timingDurationMs >= 0 ? timingDurationMs : rootSpan.getDurationMs();
+
         int status = 200;
         try {
             status = Integer.parseInt(rootSpan.getTags().getOrDefault("http.status", "200"));
@@ -149,7 +212,16 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
         // 总耗时
         String timeColor = durationMs < 200 ? GREEN : (durationMs < 1000 ? YELLOW : RED);
         sb.append(GRAY).append("  ").append("总耗时   : ").append(RESET)
-                .append(timeColor).append(durationMs).append("ms").append(RESET).append("\n");
+                .append(timeColor).append(durationMs).append("ms").append(RESET);
+
+        // 慢接口警告
+        if (timingEnabled) {
+            long slowThreshold = properties.getTiming().getSlowThreshold();
+            if (slowThreshold > 0 && durationMs > slowThreshold) {
+                sb.append(" ").append(RED).append("⚠ 慢接口（阈值 ").append(slowThreshold).append("ms）").append(RESET);
+            }
+        }
+        sb.append("\n");
 
         // Span 调用链
         List<SpanInfo> children = rootSpan.getChildren();
@@ -157,6 +229,42 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
             sb.append(GRAY).append("  ─────────────────────────────────────────────────────────────────").append(RESET).append("\n");
             buildSpanTree(sb, rootSpan, "  ", true);
         }
+
+        sb.append(BORDER);
+        LOG.info(sb.toString());
+    }
+
+    /**
+     * 仅计时模式：输出简洁的计时摘要（requestId、请求、状态、耗时）
+     */
+    private void printTimingSummary(String requestId, String operationName, int status, long durationMs) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n").append(BORDER).append("\n");
+
+        // requestId
+        sb.append(GRAY).append("  ").append("requestId: ").append(RESET)
+                .append(CYAN).append(requestId).append(RESET).append("\n");
+
+        // 请求
+        sb.append(GRAY).append("  ").append("请求     : ").append(RESET)
+                .append(WHITE_BOLD).append(operationName).append(RESET).append("\n");
+
+        // 状态码
+        String statusColor = status < 400 ? GREEN : (status < 500 ? YELLOW : RED);
+        sb.append(GRAY).append("  ").append("状态码   : ").append(RESET)
+                .append(statusColor).append(status).append(RESET).append("\n");
+
+        // 耗时
+        String timeColor = durationMs < 200 ? GREEN : (durationMs < 1000 ? YELLOW : RED);
+        sb.append(GRAY).append("  ").append("耗时     : ").append(RESET)
+                .append(timeColor).append(durationMs).append("ms").append(RESET);
+
+        // 慢接口警告
+        long slowThreshold = properties.getTiming().getSlowThreshold();
+        if (slowThreshold > 0 && durationMs > slowThreshold) {
+            sb.append(" ").append(RED).append("⚠ 慢接口（阈值 ").append(slowThreshold).append("ms）").append(RESET);
+        }
+        sb.append("\n");
 
         sb.append(BORDER);
         LOG.info(sb.toString());
@@ -205,7 +313,6 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
             if (isRoot) {
                 childPrefix = connector;
             } else {
-                String continuation = isLast ? "   " : "│  ";
                 childPrefix = prefix.replace("├─ ", "│  ").replace("└─ ", "   ") + connector;
             }
             buildSpanTree(sb, child, childPrefix, false);

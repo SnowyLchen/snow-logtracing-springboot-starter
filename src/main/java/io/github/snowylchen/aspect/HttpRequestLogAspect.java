@@ -29,7 +29,6 @@ import org.springframework.asm.MethodVisitor;
 import org.springframework.asm.Opcodes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -43,7 +42,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import static io.github.snowylchen.util.LogUtil.*;
 
 @Aspect
-@Component
 @Order()
 public class HttpRequestLogAspect {
     private final static Logger LOG = LoggerFactory.getLogger(HttpRequestLogAspect.class);
@@ -74,8 +72,8 @@ public class HttpRequestLogAspect {
         StringBuilder logBuffer = LOG_BUFFER.get();
         logBuffer.setLength(0);
 
-        // 检查是否启用日志追踪
-        if (logTracingProperties != null && Boolean.FALSE.equals(logTracingProperties.getEnable())) {
+        // 检查是否启用 HTTP 请求日志输出
+        if (logTracingProperties != null && !logTracingProperties.getRequestLog().isEnabled()) {
             return logBuffer;
         }
 
@@ -203,8 +201,8 @@ public class HttpRequestLogAspect {
 
     @Around("controllerPointcut()")
     public Object doAround(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
-        // 检查是否启用日志追踪
-        if (logTracingProperties != null && Boolean.FALSE.equals(logTracingProperties.getEnable())) {
+        // 检查是否启用 HTTP 请求日志输出
+        if (logTracingProperties != null && !logTracingProperties.getRequestLog().isEnabled()) {
             return proceedingJoinPoint.proceed();
         }
         return printHttpRequestLogFormat(proceedingJoinPoint);

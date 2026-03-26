@@ -40,40 +40,77 @@ public class LogTracingProperties {
     private List<String> excludeHeaders = new ArrayList<>();
 
     /**
-     * 追踪配置
+     * HTTP 请求日志输出配置
+     */
+    private RequestLogProperties requestLog = new RequestLogProperties();
+
+    /**
+     * 接口计时统计配置
+     */
+    private TimingProperties timing = new TimingProperties();
+
+    /**
+     * 分布式追踪配置
      */
     private TraceProperties trace = new TraceProperties();
 
     /**
-     * 跨服务传播配置
-     */
-    private PropagationProperties propagation = new PropagationProperties();
-
-    /**
-     * 异步上下文传递配置
-     */
-    private AsyncProperties async = new AsyncProperties();
-
-    /**
-     * 追踪功能配置
+     * HTTP 请求日志输出配置
      */
     @Data
-    public static class TraceProperties {
+    public static class RequestLogProperties {
         /**
-         * 是否启用追踪功能，默认启用
+         * 是否启用 HTTP 请求日志输出（请求参数、响应结果等），默认启用
+         */
+        private boolean enabled = true;
+    }
+
+    /**
+     * 接口计时统计功能配置
+     */
+    @Data
+    public static class TimingProperties {
+        /**
+         * 是否启用接口计时统计，默认启用
          */
         private boolean enabled = true;
 
         /**
-         * 采样率，0.0-1.0，默认全采样
+         * 慢接口阈值（毫秒），超过此值将标记为慢接口，-1 表示不检测
          */
-        private double sampleRate = 1.0;
+        private long slowThreshold = -1;
+    }
+
+    /**
+     * 分布式追踪功能配置
+     */
+    @Data
+    public static class TraceProperties {
+        /**
+         * 是否启用分布式追踪功能，默认启用
+         */
+        private boolean enabled = true;
 
         /**
          * 是否自动拦截 Service 层（*..service..*Service）的方法，
          * 开启后无需手动添加 @Trace 注解即可追踪 Service 层耗时，默认关闭
          */
         private boolean autoTraceService = false;
+
+        /**
+         * 是否在请求结束时输出 Span 树汇总日志，默认启用
+         */
+        private boolean spanTreeLog = true;
+
+        /**
+         * 跨服务传播配置
+         */
+        private PropagationProperties propagation = new PropagationProperties();
+
+        /**
+         * 异步上下文传递配置
+         */
+        private AsyncProperties async = new AsyncProperties();
     }
 
     /**
@@ -82,17 +119,12 @@ public class LogTracingProperties {
     @Data
     public static class PropagationProperties {
         /**
-         * 是否启用跨服务传播，默认启用
-         */
-        private boolean enabled = true;
-
-        /**
-         * 是否拦截 RestTemplate 调用
+         * 是否拦截 RestTemplate 调用，默认启用
          */
         private boolean restTemplate = true;
 
         /**
-         * 是否拦截 Feign 调用
+         * 是否拦截 Feign 调用，默认关闭
          */
         private boolean feign = false;
     }
