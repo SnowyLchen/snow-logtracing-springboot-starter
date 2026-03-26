@@ -272,6 +272,10 @@ snow:
     # ===== 基础配置 =====
     enable: true                    # 总开关，控制整个 starter 是否激活，默认 true
 
+    # HTTP 请求日志输出控制（独立于追踪和计时模块）
+    request-log:
+      enabled: true                 # 是否输出 Controller 层请求/响应日志（参数、Headers、返回结果等），默认 true
+
     # 需要输出的日志字段，不配置则输出所有字段，支持通配符 *
     fields:
       - requestUrl                  # 请求地址（如 GET http://localhost:8080/api/user）
@@ -317,8 +321,17 @@ snow:
         enabled: true               # 提供 TaskDecorator Bean，用于线程池传递 traceId，默认 true
 ```
 
-> **配置独立性**：`timing` 和 `trace` 是两个独立模块，各自有开关和参数，互不影响。
-> 可以只开 timing（轻量计时）、只开 trace（链路追踪）、或同时开启（完整体验）。
+> **配置独立性**：共有四个独立开关，互不影响：
+> - `enable`：总开关，控制整个 starter 是否激活
+> - `request-log.enabled`：HTTP 请求日志输出开关（Controller 层参数/响应日志）
+> - `timing.enabled`：接口计时统计开关（请求耗时、慢接口检测）
+> - `trace.enabled`：分布式追踪开关（TraceId/Span/调用链）
+>
+> 可以灵活组合使用，如：
+> - 只开 request-log（仅输出请求日志）
+> - 只开 timing（仅计时）
+> - 只开 trace（仅追踪）
+> - 或同时开启多个获得完整体验
 
 ### 字段通配符
 
@@ -479,6 +492,14 @@ String spanId = TraceContext.currentSpanId();
 两者配合使用：AOP 切面负责记录 HTTP 请求/响应的详细信息，`@Trace` 负责记录内部方法调用的耗时。
 
 ## 更新日志
+
+### v1.2.1
+
+**配置精细化升级：**
+- HTTP 请求日志输出从 `snow.logtracing.enable` 总开关中分离出来，新增独立配置 `snow.logtracing.request-log.enabled`
+- `enable` 现在仅控制整个 starter 是否激活
+- `request-log.enabled` 控制 Controller 层请求/响应日志（参数、Headers、返回结果）的输出
+- 四个开关完全独立：`enable`（总）、`request-log.enabled`（请求日志）、`timing.enabled`（计时）、`trace.enabled`（追踪）
 
 ### v1.2.0
 
