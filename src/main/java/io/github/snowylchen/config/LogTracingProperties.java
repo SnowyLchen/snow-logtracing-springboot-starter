@@ -2,7 +2,6 @@ package io.github.snowylchen.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +38,75 @@ public class LogTracingProperties {
      * 排除特定的 Header 信息，默认排除常见的无关 header
      */
     private List<String> excludeHeaders = new ArrayList<>();
+
+    /**
+     * 追踪配置
+     */
+    private TraceProperties trace = new TraceProperties();
+
+    /**
+     * 跨服务传播配置
+     */
+    private PropagationProperties propagation = new PropagationProperties();
+
+    /**
+     * 异步上下文传递配置
+     */
+    private AsyncProperties async = new AsyncProperties();
+
+    /**
+     * 追踪功能配置
+     */
+    @Data
+    public static class TraceProperties {
+        /**
+         * 是否启用追踪功能，默认启用
+         */
+        private boolean enabled = true;
+
+        /**
+         * 采样率，0.0-1.0，默认全采样
+         */
+        private double sampleRate = 1.0;
+
+        /**
+         * 是否自动拦截 Service 层（*..service..*Service）的方法，
+         * 开启后无需手动添加 @Trace 注解即可追踪 Service 层耗时，默认关闭
+         */
+        private boolean autoTraceService = false;
+    }
+
+    /**
+     * 跨服务传播配置
+     */
+    @Data
+    public static class PropagationProperties {
+        /**
+         * 是否启用跨服务传播，默认启用
+         */
+        private boolean enabled = true;
+
+        /**
+         * 是否拦截 RestTemplate 调用
+         */
+        private boolean restTemplate = true;
+
+        /**
+         * 是否拦截 Feign 调用
+         */
+        private boolean feign = false;
+    }
+
+    /**
+     * 异步上下文传递配置
+     */
+    @Data
+    public static class AsyncProperties {
+        /**
+         * 是否启用异步上下文传递，默认启用
+         */
+        private boolean enabled = true;
+    }
 
     /**
      * 判断是否需要输出某个字段

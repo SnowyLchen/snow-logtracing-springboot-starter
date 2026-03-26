@@ -5,7 +5,9 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.filter.SimplePropertyPreFilter;
 import io.github.snowylchen.config.LogTracingProperties;
-import io.github.snowylchen.util.FunExecuteTimeUtil;
+import io.github.snowylchen.trace.SpanInfo;
+import io.github.snowylchen.trace.SpanKind;
+import io.github.snowylchen.trace.TraceContext;
 import io.github.snowylchen.util.LogServletUtils;
 import io.github.snowylchen.util.WebUtil;
 import javax.servlet.ServletRequest;
@@ -32,7 +34,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.lang.reflect.Method;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -80,6 +81,14 @@ public class HttpRequestLogAspect {
 
         // 构建请求开始信息
         logBuffer.append(requestLog(REQUEST_START)).append("\n");
+
+        // 添加 traceId 信息
+        String traceId = TraceContext.currentTraceId();
+        if (traceId != null) {
+            logBuffer.append(buildThreadLog())
+                    .append("traceId: ").append(traceId).append("\n");
+        }
+
         ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
 
         // 根据配置动态添加字段
@@ -198,7 +207,7 @@ public class HttpRequestLogAspect {
         if (logTracingProperties != null && Boolean.FALSE.equals(logTracingProperties.getEnable())) {
             return proceedingJoinPoint.proceed();
         }
-        return printHttpRequestLogFormat(proceedingJoinPoint, proceedingJoinPoint::proceed);
+        return printHttpRequestLogFormat(proceedingJoinPoint);
     }
 
     /**
@@ -303,37 +312,61 @@ public class HttpRequestLogAspect {
 
 
     /**
-     * 打印请求日志
+     * 打印请求日志（计时由 TraceFilter 负责，这里只负责请求参数和响应体的日志输出）
+     * 同时自动为 Controller 方法创建子 Span，使 Span 树至少有一层
      */
-    private static <T> T printHttpRequestLogFormat(JoinPoint joinPoint, FunExecuteTimeUtil.CalculateTimeInterFace<T> calculateTimeInterFace) throws Throwable {
+    private static <T> T printHttpRequestLogFormat(ProceedingJoinPoint joinPoint) throws Throwable {
         HttpServletRequest request = LogServletUtils.getHttpServletRequest();
-        long startTime = System.currentTimeMillis();
         Signature signature = joinPoint.getSignature();
         String name = signature.getName();
-        StringBuilder requestThreadLog = buildRequestLog(joinPoint, request, signature, name);
-        T result = calculateTimeInterFace.execute();
-        requestThreadLog.setLength(0);
 
-        // 检查是否需要输出响应结果
-        boolean needResponse = (logTracingProperties == null ||
-                logTracingProperties.needOutput("response")) && (result != null);
+        // 输出请求开始日志（参数、Header 等）
+        buildRequestLog(joinPoint, request, signature, name);
 
-        if (needResponse) {
-            requestThreadLog
-                    .append("返回的结果:")
-                    .append(JSON.toJSONString(result, buildSensitiveInfoFilter()))
-                    .append("\n")
-                    .append(buildThreadLog())
-            ;
+        // 自动创建 Controller 层子 Span
+        TraceContext context = TraceContext.getCurrent();
+        SpanInfo controllerSpan = null;
+        if (context != null) {
+            String operationName = signature.getDeclaringType().getSimpleName() + "#" + name;
+            controllerSpan = context.startSpan(operationName, SpanKind.INTERNAL);
+            controllerSpan.addTag("layer", "controller");
         }
 
-        // 检查是否需要输出耗时信息
-        if (logTracingProperties == null || logTracingProperties.needOutput("costTime")) {
-            requestThreadLog.append(MessageFormat.format(requestLog("请求结束 " + request.getRequestURI() + REQUEST_END), System.currentTimeMillis() - startTime));
-        }
+        try {
+            // 执行目标方法
+            @SuppressWarnings("unchecked")
+            T result = (T) joinPoint.proceed();
 
-        requestThreadLog.append("\n\n");
-        LOG.info(requestThreadLog.toString());
-        return result;
+            // 结束 Controller Span
+            if (context != null) {
+                context.finishSpan();
+            }
+
+            // 输出响应日志
+            StringBuilder responseLog = LOG_BUFFER.get();
+            responseLog.setLength(0);
+
+            // 检查是否需要输出响应结果
+            boolean needResponse = (logTracingProperties == null ||
+                    logTracingProperties.needOutput("response")) && (result != null);
+
+            if (needResponse) {
+                responseLog.append(buildThreadLog())
+                        .append("返回的结果: ")
+                        .append(JSON.toJSONString(result, buildSensitiveInfoFilter()))
+                        .append("\n");
+                LOG.info(responseLog.toString());
+            }
+
+            return result;
+        } catch (Throwable e) {
+            if (controllerSpan != null) {
+                controllerSpan.markError(e.getMessage());
+            }
+            if (context != null) {
+                context.finishSpan();
+            }
+            throw e;
+        }
     }
 }

@@ -24,17 +24,17 @@ public class FunExecuteTimeUtil {
     }
 
     /**
-     * 计算执行时间
+     * 计算执行时间（使用 System.nanoTime() 精确计时）
      *
      * @param name          名字
      * @param calculateTime 计算时间
      * @return {@link T}
      */
     public static <T> T calculateTime(String name, CalculateTimeInterFace<T> calculateTime) throws Throwable {
-        long start = System.currentTimeMillis();
+        long start = System.nanoTime();
         T result = calculateTime.execute();
-        long end = System.currentTimeMillis();
-        System.err.println(requestLog("\t【" + name + "】执行时间：" + (end - start) + "ms\t"));
+        long durationMs = (System.nanoTime() - start) / 1_000_000;
+        log.info(requestLog("\t【" + name + "】执行时间：" + durationMs + "ms\t"));
         return result;
     }
 
@@ -45,9 +45,9 @@ public class FunExecuteTimeUtil {
      * @param runnable
      */
     public static void calculateTime(String name, Runnable runnable) throws Throwable {
-        long start = System.currentTimeMillis();
+        long start = System.nanoTime();
         runnable.run();
-        long end = System.currentTimeMillis();
-        System.err.println(requestLog("\t【" + name + "】执行时间：" + (end - start) + "ms\t"));
+        long durationMs = (System.nanoTime() - start) / 1_000_000;
+        log.info(requestLog("\t【" + name + "】执行时间：" + durationMs + "ms\t"));
     }
 }
