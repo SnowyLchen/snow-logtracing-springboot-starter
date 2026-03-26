@@ -26,19 +26,24 @@ import org.springframework.asm.ClassVisitor;
 import org.springframework.asm.MethodVisitor;
 import org.springframework.asm.Opcodes;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.text.MessageFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.snowylchen.util.LogUtil.*;
 
 @Aspect
 @Component
+@Order()
 public class HttpRequestLogAspect {
     private final static Logger LOG = LoggerFactory.getLogger(HttpRequestLogAspect.class);
     private static final ThreadLocal<StringBuilder> LOG_BUFFER = ThreadLocal.withInitial(StringBuilder::new);
