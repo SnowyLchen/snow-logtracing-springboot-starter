@@ -21,6 +21,8 @@ import org.springframework.core.annotation.Order;
 @Order(2)
 public class ServiceAutoTraceAspect {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ServiceAutoTraceAspect.class);
+
     @Pointcut("execution(public * *..service..*Service.*(..))")
     public void servicePointcut() {
     }
@@ -32,19 +34,35 @@ public class ServiceAutoTraceAspect {
             return joinPoint.proceed();
         }
 
-        Signature signature = joinPoint.getSignature();
-        String operationName = signature.getDeclaringType().getSimpleName() + "#" + signature.getName();
-
-        SpanInfo span = context.startSpan(operationName, SpanKind.INTERNAL);
-        span.addTag("layer", "service");
+        SpanInfo span = null;
+        try {
+            Signature signature = joinPoint.getSignature();
+            String operationName = signature.getDeclaringType().getSimpleName() + "#" + signature.getName();
+            span = context.startSpan(operationName, SpanKind.INTERNAL);
+            span.addTag("layer", "service");
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] Service 层 Span 创建异常", e);
+        }
 
         try {
             Object result = joinPoint.proceed();
-            context.finishSpan();
+            try {
+                if (span != null) {
+                    context.finishSpan();
+                }
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] Service 层 Span 结束异常", e);
+            }
             return result;
         } catch (Throwable e) {
-            span.markError(e.getMessage());
-            context.finishSpan();
+            try {
+                if (span != null) {
+                    span.markError(e.getMessage());
+                    context.finishSpan();
+                }
+            } catch (Exception ex) {
+                LOG.debug("[snow-logtracing] Service 层 Span 异常处理失败", ex);
+            }
             throw e;
         }
     }

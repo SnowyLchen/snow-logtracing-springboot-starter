@@ -10,9 +10,6 @@ import io.github.snowylchen.trace.SpanKind;
 import io.github.snowylchen.trace.TraceContext;
 import io.github.snowylchen.util.LogServletUtils;
 import io.github.snowylchen.util.WebUtil;
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletResponse;
-import javax.servlet.http.HttpServletRequest;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.Signature;
@@ -31,6 +28,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
+import javax.servlet.http.HttpServletRequest;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -72,56 +72,64 @@ public class HttpRequestLogAspect {
         StringBuilder logBuffer = LOG_BUFFER.get();
         logBuffer.setLength(0);
 
-        // 检查是否启用 HTTP 请求日志输出
-        if (logTracingProperties != null && !logTracingProperties.getRequestLog().isEnabled()) {
-            return logBuffer;
+        try {
+            // 检查是否启用 HTTP 请求日志输出
+            if (logTracingProperties != null && !logTracingProperties.getRequestLog().isEnabled()) {
+                return logBuffer;
+            }
+
+            if (request == null) {
+                return logBuffer;
+            }
+
+            // 构建请求开始信息
+            logBuffer.append(requestLog(REQUEST_START)).append("\n");
+
+            // 添加 traceId 信息
+            String traceId = TraceContext.currentTraceId();
+            if (traceId != null) {
+                logBuffer.append(buildThreadLog())
+                        .append("traceId: ").append(traceId).append("\n");
+            }
+
+            ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
+
+            // 根据配置动态添加字段
+            if (shouldOutput("requestUrl")) {
+                map.put("请求地址", request.getMethod() + " " + request.getRequestURL().toString());
+            }
+
+            if (shouldOutput("methodInfo")) {
+                map.put("类名方法", "(" + signature.getDeclaringTypeName() + "#" + name + ")");
+            }
+
+            // 获取方法的真实行号
+            int lineNumber = getMethodLineNumber(signature);
+            if (shouldOutput("lineInfo")) {
+                map.put("类名快捷跳转", "(" + signature.getDeclaringType().getSimpleName() + ".java:" + lineNumber + ")");
+            }
+
+            if (shouldOutput("remoteIp")) {
+                map.put("远程地址", WebUtil.getIP(request));
+            }
+
+            if (shouldOutput("headers")) {
+                map.put("请求头信息", extractHeadersInfo(request));
+            }
+
+            if (shouldOutput("params")) {
+                map.put("请求的参数", buildRequestParam(joinPoint));
+            }
+
+            // 构建彩色的时间戳和线程信息
+            for (Map.Entry<String, String> mp : map.entrySet()) {
+                logBuffer.append(buildThreadLog())
+                        .append(mp.getKey()).append(": ").append(mp.getValue()).append("\n");
+            }
+            LOG.info(logBuffer.toString());
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] 构建请求日志异常", e);
         }
-
-        // 构建请求开始信息
-        logBuffer.append(requestLog(REQUEST_START)).append("\n");
-
-        // 添加 traceId 信息
-        String traceId = TraceContext.currentTraceId();
-        if (traceId != null) {
-            logBuffer.append(buildThreadLog())
-                    .append("traceId: ").append(traceId).append("\n");
-        }
-
-        ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
-
-        // 根据配置动态添加字段
-        if (logTracingProperties == null || logTracingProperties.needOutput("requestUrl")) {
-            map.put("请求地址", request.getMethod() + " " + request.getRequestURL().toString());
-        }
-
-        if (logTracingProperties == null || logTracingProperties.needOutput("methodInfo")) {
-            map.put("类名方法", "(" + signature.getDeclaringTypeName() + "#" + name + ")");
-        }
-
-        // 获取方法的真实行号
-        int lineNumber = getMethodLineNumber(signature);
-        if (logTracingProperties == null || logTracingProperties.needOutput("lineInfo")) {
-            map.put("类名快捷跳转", "(" + signature.getDeclaringType().getSimpleName() + ".java:" + lineNumber + ")");
-        }
-
-        if (logTracingProperties == null || logTracingProperties.needOutput("remoteIp")) {
-            map.put("远程地址", getRemoteIp(request));
-        }
-
-        if (logTracingProperties == null || logTracingProperties.needOutput("headers")) {
-            map.put("请求头信息", extractHeadersInfo(request));
-        }
-
-        if (logTracingProperties == null || logTracingProperties.needOutput("params")) {
-            map.put("请求的参数", buildRequestParam(joinPoint));
-        }
-
-        // 构建彩色的时间戳和线程信息
-        for (Map.Entry<String, String> mp : map.entrySet()) {
-            logBuffer.append(buildThreadLog())
-                    .append(mp.getKey()).append(": ").append(mp.getValue()).append("\n");
-        }
-        LOG.info(logBuffer.toString());
         return logBuffer;
     }
 
@@ -201,31 +209,23 @@ public class HttpRequestLogAspect {
 
     @Around("controllerPointcut()")
     public Object doAround(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
-        // 检查是否启用 HTTP 请求日志输出
-        if (logTracingProperties != null && !logTracingProperties.getRequestLog().isEnabled()) {
+        try {
+            // 检查是否启用 HTTP 请求日志输出
+            if (logTracingProperties != null && !logTracingProperties.getRequestLog().isEnabled()) {
+                return proceedingJoinPoint.proceed();
+            }
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] 读取日志配置异常，直接执行业务方法", e);
             return proceedingJoinPoint.proceed();
         }
         return printHttpRequestLogFormat(proceedingJoinPoint);
     }
 
     /**
-     * 使用 Nginx 进行反向代理，这个方法主要是用来获取远程 IP
-     *
-     * @param request
-     * @return
+     * 判断是否需要输出指定字段（配置为空时默认输出所有字段）
      */
-    private static String getRemoteIp(HttpServletRequest request) {
-        String ip = request.getHeader("x-forwarded-for");
-        if (ip == null || ip.length() == 0 || UNKNOWN.equalsIgnoreCase(ip)) {
-            ip = request.getHeader("Proxy-Client-IP");
-        }
-        if (ip == null || ip.length() == 0 || UNKNOWN.equalsIgnoreCase(ip)) {
-            ip = request.getHeader("WL-Proxy-Client-IP");
-        }
-        if (ip == null || ip.length() == 0 || UNKNOWN.equalsIgnoreCase(ip)) {
-            ip = WebUtil.getIP(request);
-        }
-        return ip;
+    private static boolean shouldOutput(String fieldName) {
+        return logTracingProperties == null || logTracingProperties.needOutput(fieldName);
     }
 
 
@@ -233,22 +233,27 @@ public class HttpRequestLogAspect {
      * 通过切面获取请求参数
      */
     public static String buildRequestParam(JoinPoint joinPoint) {
-        Object[] args = joinPoint.getArgs();
-        // 获取请求参数key
-        String[] parameterNames = ((CodeSignature) joinPoint.getSignature()).getParameterNames();
-        // 组装请求参数
-        JSONObject params = new JSONObject();
-        for (int i = 0; i < args.length; i++) {
-            if (args[i] instanceof ServletRequest
-                    || args[i] instanceof ServletResponse
-                    || args[i] instanceof MultipartFile) {
-                continue;
+        try {
+            Object[] args = joinPoint.getArgs();
+            // 获取请求参数key
+            String[] parameterNames = ((CodeSignature) joinPoint.getSignature()).getParameterNames();
+            // 组装请求参数
+            JSONObject params = new JSONObject();
+            for (int i = 0; i < args.length; i++) {
+                if (args[i] instanceof ServletRequest
+                        || args[i] instanceof ServletResponse
+                        || args[i] instanceof MultipartFile) {
+                    continue;
+                }
+                if (parameterNames[i] != null && args[i] != null) {
+                    params.put(parameterNames[i], args[i]);
+                }
             }
-            if (parameterNames[i] != null && args[i] != null) {
-                params.put(parameterNames[i], args[i]);
-            }
+            return JSON.toJSONString(params, buildSensitiveInfoFilter());
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] 构建请求参数日志异常", e);
+            return "[error: " + e.getMessage() + "]";
         }
-        return JSON.toJSONString(params, buildSensitiveInfoFilter());
     }
 
     /**
@@ -314,20 +319,26 @@ public class HttpRequestLogAspect {
      * 同时自动为 Controller 方法创建子 Span，使 Span 树至少有一层
      */
     private static <T> T printHttpRequestLogFormat(ProceedingJoinPoint joinPoint) throws Throwable {
-        HttpServletRequest request = LogServletUtils.getHttpServletRequest();
-        Signature signature = joinPoint.getSignature();
-        String name = signature.getName();
-
-        // 输出请求开始日志（参数、Header 等）
-        buildRequestLog(joinPoint, request, signature, name);
-
-        // 自动创建 Controller 层子 Span
-        TraceContext context = TraceContext.getCurrent();
+        // 前置日志输出（失败不影响业务）
+        TraceContext context = null;
         SpanInfo controllerSpan = null;
-        if (context != null) {
-            String operationName = signature.getDeclaringType().getSimpleName() + "#" + name;
-            controllerSpan = context.startSpan(operationName, SpanKind.INTERNAL);
-            controllerSpan.addTag("layer", "controller");
+        try {
+            HttpServletRequest request = LogServletUtils.getHttpServletRequest();
+            Signature signature = joinPoint.getSignature();
+            String name = signature.getName();
+
+            // 输出请求开始日志（参数、Header 等）
+            buildRequestLog(joinPoint, request, signature, name);
+
+            // 自动创建 Controller 层子 Span
+            context = TraceContext.getCurrent();
+            if (context != null) {
+                String operationName = signature.getDeclaringType().getSimpleName() + "#" + name;
+                controllerSpan = context.startSpan(operationName, SpanKind.INTERNAL);
+                controllerSpan.addTag("layer", "controller");
+            }
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] 前置日志/Span 创建异常", e);
         }
 
         try {
@@ -336,33 +347,44 @@ public class HttpRequestLogAspect {
             T result = (T) joinPoint.proceed();
 
             // 结束 Controller Span
-            if (context != null) {
-                context.finishSpan();
+            try {
+                if (context != null) {
+                    context.finishSpan();
+                }
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] 结束 Controller Span 异常", e);
             }
 
             // 输出响应日志
-            StringBuilder responseLog = LOG_BUFFER.get();
-            responseLog.setLength(0);
+            try {
+                StringBuilder responseLog = LOG_BUFFER.get();
+                responseLog.setLength(0);
 
-            // 检查是否需要输出响应结果
-            boolean needResponse = (logTracingProperties == null ||
-                    logTracingProperties.needOutput("response")) && (result != null);
+                // 检查是否需要输出响应结果
+                boolean needResponse = shouldOutput("response") && (result != null);
 
-            if (needResponse) {
-                responseLog.append(buildThreadLog())
-                        .append("返回的结果: ")
-                        .append(JSON.toJSONString(result, buildSensitiveInfoFilter()))
-                        .append("\n");
-                LOG.info(responseLog.toString());
+                if (needResponse) {
+                    responseLog.append(buildThreadLog())
+                            .append("返回的结果: ")
+                            .append(JSON.toJSONString(result, buildSensitiveInfoFilter()))
+                            .append("\n");
+                    LOG.info(responseLog.toString());
+                }
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] 输出响应日志异常", e);
             }
 
             return result;
         } catch (Throwable e) {
-            if (controllerSpan != null) {
-                controllerSpan.markError(e.getMessage());
-            }
-            if (context != null) {
-                context.finishSpan();
+            try {
+                if (controllerSpan != null) {
+                    controllerSpan.markError(e.getMessage());
+                }
+                if (context != null) {
+                    context.finishSpan();
+                }
+            } catch (Exception ex) {
+                LOG.debug("[snow-logtracing] 异常处理中结束 Span 失败", ex);
             }
             throw e;
         }

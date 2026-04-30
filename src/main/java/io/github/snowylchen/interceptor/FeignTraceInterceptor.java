@@ -15,24 +15,32 @@ import io.github.snowylchen.trace.TraceContext;
  */
 public class FeignTraceInterceptor implements feign.RequestInterceptor {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FeignTraceInterceptor.class);
+
     @Override
     public void apply(feign.RequestTemplate template) {
-        TraceContext context = TraceContext.getCurrent();
-        if (context == null) {
-            return;
-        }
+        try {
+            TraceContext context = TraceContext.getCurrent();
+            if (context == null) {
+                return;
+            }
 
-        // 注入 trace header
-        template.header(TraceFilter.HEADER_TRACE_ID, context.getTraceId());
-        String currentSpanId = TraceContext.currentSpanId();
-        if (currentSpanId != null) {
-            template.header(TraceFilter.HEADER_SPAN_ID, currentSpanId);
-        }
+            // 注入 trace header
+            template.header(TraceFilter.HEADER_TRACE_ID, context.getTraceId());
+            String currentSpanId = TraceContext.currentSpanId();
+            if (currentSpanId != null) {
+                template.header(TraceFilter.HEADER_SPAN_ID, currentSpanId);
+            }
 
-        // 创建 CLIENT 类型子 Span
-        String operationName = template.method() + " " + template.url();
-        SpanInfo span = context.startSpan(operationName, SpanKind.CLIENT);
-        span.addTag("http.method", template.method());
-        span.addTag("feign.url", template.url());
+            // 创建 CLIENT 类型子 Span
+            String operationName = template.method() + " " + template.url();
+            SpanInfo span = context.startSpan(operationName, SpanKind.CLIENT);
+            span.addTag("http.method", template.method());
+            span.addTag("feign.url", template.url());
+            // 注意：Feign 的 RequestInterceptor 无法获取响应，这里立即结束 Span
+            context.finishSpan();
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] Feign 追踪拦截器异常", e);
+        }
     }
 }

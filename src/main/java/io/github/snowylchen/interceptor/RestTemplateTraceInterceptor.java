@@ -20,6 +20,8 @@ import java.io.IOException;
  */
 public class RestTemplateTraceInterceptor implements ClientHttpRequestInterceptor {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(RestTemplateTraceInterceptor.class);
+
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body,
                                         ClientHttpRequestExecution execution) throws IOException {
@@ -28,27 +30,44 @@ public class RestTemplateTraceInterceptor implements ClientHttpRequestIntercepto
             return execution.execute(request, body);
         }
 
-        // 注入 trace header 到下游请求
-        request.getHeaders().set(TraceFilter.HEADER_TRACE_ID, context.getTraceId());
-        String currentSpanId = TraceContext.currentSpanId();
-        if (currentSpanId != null) {
-            request.getHeaders().set(TraceFilter.HEADER_SPAN_ID, currentSpanId);
-        }
+        SpanInfo span = null;
+        try {
+            // 注入 trace header 到下游请求
+            request.getHeaders().set(TraceFilter.HEADER_TRACE_ID, context.getTraceId());
+            String currentSpanId = TraceContext.currentSpanId();
+            if (currentSpanId != null) {
+                request.getHeaders().set(TraceFilter.HEADER_SPAN_ID, currentSpanId);
+            }
 
-        // 创建 CLIENT 类型子 Span
-        String operationName = request.getMethod() + " " + request.getURI().toString();
-        SpanInfo span = context.startSpan(operationName, SpanKind.CLIENT);
-        span.addTag("http.method", String.valueOf(request.getMethod()));
-        span.addTag("http.url", request.getURI().toString());
+            // 创建 CLIENT 类型子 Span
+            String operationName = request.getMethod() + " " + request.getURI().toString();
+            span = context.startSpan(operationName, SpanKind.CLIENT);
+            span.addTag("http.method", String.valueOf(request.getMethod()));
+            span.addTag("http.url", request.getURI().toString());
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] RestTemplate 追踪前置处理异常", e);
+        }
 
         try {
             ClientHttpResponse response = execution.execute(request, body);
-            span.addTag("http.status", String.valueOf(response.getStatusCode().value()));
-            context.finishSpan();
+            try {
+                if (span != null) {
+                    span.addTag("http.status", String.valueOf(response.getStatusCode().value()));
+                    context.finishSpan();
+                }
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] RestTemplate 追踪后置处理异常", e);
+            }
             return response;
         } catch (IOException e) {
-            span.markError(e.getMessage());
-            context.finishSpan();
+            try {
+                if (span != null) {
+                    span.markError(e.getMessage());
+                    context.finishSpan();
+                }
+            } catch (Exception ex) {
+                LOG.debug("[snow-logtracing] RestTemplate 追踪异常处理失败", ex);
+            }
             throw e;
         }
     }

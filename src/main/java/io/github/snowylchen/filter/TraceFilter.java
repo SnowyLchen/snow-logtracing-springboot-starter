@@ -61,8 +61,14 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        boolean timingEnabled = properties.getTiming().isEnabled();
-        boolean tracingEnabled = properties.getTrace().isEnabled();
+        boolean timingEnabled = false;
+        boolean tracingEnabled = false;
+        try {
+            timingEnabled = properties.getTiming().isEnabled();
+            tracingEnabled = properties.getTrace().isEnabled();
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] 读取配置异常，跳过追踪/计时", e);
+        }
 
         // === 计时模块：记录起始时间 ===
         long startNanos = 0;
@@ -75,54 +81,68 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
         SpanInfo rootSpan = null;
         String requestId = null;
 
-        if (tracingEnabled) {
-            // 从请求头提取或生成 TraceId
-            String traceId = request.getHeader(HEADER_TRACE_ID);
-            if (traceId == null || traceId.trim().isEmpty()) {
-                traceId = TraceIdGenerator.generateTraceId();
+        try {
+            if (tracingEnabled) {
+                // 从请求头提取或生成 TraceId
+                String traceId = request.getHeader(HEADER_TRACE_ID);
+                if (traceId == null || traceId.trim().isEmpty()) {
+                    traceId = TraceIdGenerator.generateTraceId();
+                }
+
+                // 从请求头提取 ParentSpanId（跨服务场景）
+                String parentSpanId = request.getHeader(HEADER_SPAN_ID);
+
+                // 创建追踪上下文
+                context = new TraceContext(traceId);
+                TraceContext.setCurrent(context);
+
+                // 写入 MDC
+                MDC.put(MDC_TRACE_ID, traceId);
+
+                // 创建根 Span
+                String operationName = request.getMethod() + " " + request.getRequestURI();
+                rootSpan = context.startSpan(operationName, SpanKind.SERVER);
+                rootSpan.addTag("http.method", request.getMethod());
+                rootSpan.addTag("http.url", request.getRequestURL().toString());
+                if (parentSpanId != null && !parentSpanId.trim().isEmpty()) {
+                    rootSpan.addTag("parent.span.id", parentSpanId);
+                }
+
+                MDC.put(MDC_SPAN_ID, rootSpan.getSpanId());
+
+                // 响应头回写 TraceId
+                response.setHeader(HEADER_TRACE_ID, traceId);
+            } else if (timingEnabled) {
+                // 仅计时模式：生成 requestId 写入 MDC，方便日志关联
+                requestId = TraceIdGenerator.generateSpanId();
+                MDC.put(MDC_REQUEST_ID, requestId);
             }
-
-            // 从请求头提取 ParentSpanId（跨服务场景）
-            String parentSpanId = request.getHeader(HEADER_SPAN_ID);
-
-            // 创建追踪上下文
-            context = new TraceContext(traceId);
-            TraceContext.setCurrent(context);
-
-            // 写入 MDC
-            MDC.put(MDC_TRACE_ID, traceId);
-
-            // 创建根 Span
-            String operationName = request.getMethod() + " " + request.getRequestURI();
-            rootSpan = context.startSpan(operationName, SpanKind.SERVER);
-            rootSpan.addTag("http.method", request.getMethod());
-            rootSpan.addTag("http.url", request.getRequestURL().toString());
-            if (parentSpanId != null && !parentSpanId.trim().isEmpty()) {
-                rootSpan.addTag("parent.span.id", parentSpanId);
-            }
-
-            MDC.put(MDC_SPAN_ID, rootSpan.getSpanId());
-
-            // 响应头回写 TraceId
-            response.setHeader(HEADER_TRACE_ID, traceId);
-        } else if (timingEnabled) {
-            // 仅计时模式：生成 requestId 写入 MDC，方便日志关联
-            requestId = TraceIdGenerator.generateSpanId();
-            MDC.put(MDC_REQUEST_ID, requestId);
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] 追踪上下文初始化异常，跳过追踪", e);
         }
 
         try {
             filterChain.doFilter(request, response);
         } catch (Exception e) {
-            if (rootSpan != null) {
-                rootSpan.markError(e.getMessage());
+            try {
+                if (rootSpan != null) {
+                    rootSpan.markError(e.getMessage());
+                }
+            } catch (Exception ex) {
+                LOG.debug("[snow-logtracing] 标记异常 Span 失败", ex);
             }
             throw e;
         } finally {
-            // === 追踪模块：结束根 Span ===
-            if (tracingEnabled && context != null) {
-                context.finishSpan();
-                rootSpan.addTag("http.status", String.valueOf(response.getStatus()));
+            try {
+                // === 追踪模块：结束根 Span ===
+                if (tracingEnabled && context != null) {
+                    context.finishSpan();
+                    if (rootSpan != null) {
+                        rootSpan.addTag("http.status", String.valueOf(response.getStatus()));
+                    }
+                }
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] 结束 Span 异常", e);
             }
 
             // === 计算耗时 ===
@@ -132,16 +152,24 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
             }
 
             // === 输出汇总日志 ===
-            printSummary(request, response, context, rootSpan, requestId, durationMs, timingEnabled, tracingEnabled);
-
-            // === 清理 ===
-            if (tracingEnabled) {
-                MDC.remove(MDC_TRACE_ID);
-                MDC.remove(MDC_SPAN_ID);
-                TraceContext.clear();
+            try {
+                printSummary(request, response, context, rootSpan, requestId, durationMs, timingEnabled, tracingEnabled);
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] 输出汇总日志异常", e);
             }
-            if (!tracingEnabled && timingEnabled) {
-                MDC.remove(MDC_REQUEST_ID);
+
+            // === 清理（必须执行） ===
+            try {
+                if (tracingEnabled) {
+                    MDC.remove(MDC_TRACE_ID);
+                    MDC.remove(MDC_SPAN_ID);
+                    TraceContext.clear();
+                }
+                if (!tracingEnabled && timingEnabled) {
+                    MDC.remove(MDC_REQUEST_ID);
+                }
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] 清理上下文异常", e);
             }
         }
     }
@@ -197,30 +225,11 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
         sb.append("\n").append(BORDER).append("\n");
 
         // traceId
-        sb.append(GRAY).append("  ").append("traceId").append("  : ").append(RESET)
-                .append(CYAN).append(context.getTraceId()).append(RESET).append("\n");
-
-        // 请求
-        sb.append(GRAY).append("  ").append("请求     : ").append(RESET)
-                .append(WHITE_BOLD).append(rootSpan.getOperationName()).append(RESET).append("\n");
-
-        // 状态码
-        String statusColor = status < 400 ? GREEN : (status < 500 ? YELLOW : RED);
-        sb.append(GRAY).append("  ").append("状态码   : ").append(RESET)
-                .append(statusColor).append(status).append(RESET).append("\n");
-
-        // 总耗时
-        String timeColor = durationMs < 200 ? GREEN : (durationMs < 1000 ? YELLOW : RED);
-        sb.append(GRAY).append("  ").append("总耗时   : ").append(RESET)
-                .append(timeColor).append(durationMs).append("ms").append(RESET);
-
-        // 慢接口警告
-        if (timingEnabled) {
-            long slowThreshold = properties.getTiming().getSlowThreshold();
-            if (slowThreshold > 0 && durationMs > slowThreshold) {
-                sb.append(" ").append(RED).append("⚠ 慢接口（阈值 ").append(slowThreshold).append("ms）").append(RESET);
-            }
-        }
+        appendField(sb, "traceId", "  : ", CYAN, context.getTraceId());
+        appendField(sb, "请求   ", "  : ", WHITE_BOLD, rootSpan.getOperationName());
+        appendStatusLine(sb, status);
+        appendDurationLine(sb, "总耗时", durationMs);
+        appendSlowWarning(sb, durationMs, timingEnabled);
         sb.append("\n");
 
         // Span 调用链
@@ -241,33 +250,48 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
         StringBuilder sb = new StringBuilder();
         sb.append("\n").append(BORDER).append("\n");
 
-        // requestId
-        sb.append(GRAY).append("  ").append("requestId: ").append(RESET)
-                .append(CYAN).append(requestId).append(RESET).append("\n");
-
-        // 请求
-        sb.append(GRAY).append("  ").append("请求     : ").append(RESET)
-                .append(WHITE_BOLD).append(operationName).append(RESET).append("\n");
-
-        // 状态码
-        String statusColor = status < 400 ? GREEN : (status < 500 ? YELLOW : RED);
-        sb.append(GRAY).append("  ").append("状态码   : ").append(RESET)
-                .append(statusColor).append(status).append(RESET).append("\n");
-
-        // 耗时
-        String timeColor = durationMs < 200 ? GREEN : (durationMs < 1000 ? YELLOW : RED);
-        sb.append(GRAY).append("  ").append("耗时     : ").append(RESET)
-                .append(timeColor).append(durationMs).append("ms").append(RESET);
-
-        // 慢接口警告
-        long slowThreshold = properties.getTiming().getSlowThreshold();
-        if (slowThreshold > 0 && durationMs > slowThreshold) {
-            sb.append(" ").append(RED).append("⚠ 慢接口（阈值 ").append(slowThreshold).append("ms）").append(RESET);
-        }
+        appendField(sb, "requestId", ": ", CYAN, requestId);
+        appendField(sb, "请求   ", "  : ", WHITE_BOLD, operationName);
+        appendStatusLine(sb, status);
+        appendDurationLine(sb, "耗时  ", durationMs);
+        appendSlowWarning(sb, durationMs, true);
         sb.append("\n");
 
         sb.append(BORDER);
         LOG.info(sb.toString());
+    }
+
+    // ========================== 日志构建辅助方法 ==========================
+
+    /** 追加一行标签字段：标签名 + 着色值 */
+    private static void appendField(StringBuilder sb, String label, String separator, String color, String value) {
+        sb.append(GRAY).append("  ").append(label).append(separator).append(RESET)
+                .append(color).append(value).append(RESET).append("\n");
+    }
+
+    /** 追加状态码行，按状态码范围着色 */
+    private static void appendStatusLine(StringBuilder sb, int status) {
+        String statusColor = status < 400 ? GREEN : (status < 500 ? YELLOW : RED);
+        sb.append(GRAY).append("  ").append("状态码   : ").append(RESET)
+                .append(statusColor).append(status).append(RESET).append("\n");
+    }
+
+    /** 追加耗时行，按耗时区间着色 */
+    private static void appendDurationLine(StringBuilder sb, String label, long durationMs) {
+        String timeColor = durationMs < 200 ? GREEN : (durationMs < 1000 ? YELLOW : RED);
+        sb.append(GRAY).append("  ").append(label).append("   : ").append(RESET)
+                .append(timeColor).append(durationMs).append("ms").append(RESET);
+    }
+
+    /** 追加慢接口警告（如果超过阈值） */
+    private void appendSlowWarning(StringBuilder sb, long durationMs, boolean check) {
+        if (!check) {
+            return;
+        }
+        long slowThreshold = properties.getTiming().getSlowThreshold();
+        if (slowThreshold > 0 && durationMs > slowThreshold) {
+            sb.append(" ").append(RED).append("⚠ 慢接口（阈值 ").append(slowThreshold).append("ms）").append(RESET);
+        }
     }
 
     /**

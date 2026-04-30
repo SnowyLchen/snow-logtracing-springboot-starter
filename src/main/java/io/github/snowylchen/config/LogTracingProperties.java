@@ -4,6 +4,7 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -15,6 +16,12 @@ import java.util.List;
 @Data
 @ConfigurationProperties(prefix = "snow.logtracing")
 public class LogTracingProperties {
+
+    /** 所有可用的日志字段名 */
+    private static final List<String> ALL_FIELDS = Arrays.asList(
+            "requestUrl", "methodInfo", "lineInfo", "remoteIp",
+            "headers", "params", "response", "costTime"
+    );
 
     /**
      * 是否启用日志追踪，默认启用
@@ -175,34 +182,9 @@ public class LogTracingProperties {
      * 获取所有可用的字段
      */
     public List<String> getAvailableFields() {
-        if (fields == null || fields.isEmpty()) {
-            // 默认返回所有字段
-            List<String> allFields = new ArrayList<>();
-            allFields.add("requestUrl");
-            allFields.add("methodInfo");
-            allFields.add("lineInfo");
-            allFields.add("remoteIp");
-            allFields.add("headers");
-            allFields.add("params");
-            allFields.add("response");
-            allFields.add("costTime");
-            return allFields;
+        if (fields == null || fields.isEmpty() || fields.contains("*")) {
+            return new ArrayList<>(ALL_FIELDS);
         }
-
-        // 如果配置了通配符 *，返回所有字段
-        if (fields.contains("*")) {
-            List<String> allFields = new ArrayList<>();
-            allFields.add("requestUrl");
-            allFields.add("methodInfo");
-            allFields.add("lineInfo");
-            allFields.add("remoteIp");
-            allFields.add("headers");
-            allFields.add("params");
-            allFields.add("response");
-            allFields.add("costTime");
-            return allFields;
-        }
-
         return fields;
     }
 
@@ -223,15 +205,7 @@ public class LogTracingProperties {
      * 获取最终的敏感字段列表（默认 + 自定义）
      */
     public List<String> getAllSensitiveFields() {
-        List<String> allFields = getDefaultSensitiveFields();
-        if (sensitiveFields != null && !sensitiveFields.isEmpty()) {
-            for (String field : sensitiveFields) {
-                if (!allFields.contains(field)) {
-                    allFields.add(field);
-                }
-            }
-        }
-        return allFields;
+        return mergeDefaults(getDefaultSensitiveFields(), sensitiveFields, false);
     }
 
     /**
@@ -253,14 +227,26 @@ public class LogTracingProperties {
      * 获取最终的排除 Header 列表（默认 + 自定义）
      */
     public List<String> getAllExcludeHeaders() {
-        List<String> allHeaders = getDefaultExcludeHeaders();
-        if (excludeHeaders != null && !excludeHeaders.isEmpty()) {
-            for (String header : excludeHeaders) {
-                if (!allHeaders.contains(header.toLowerCase())) {
-                    allHeaders.add(header.toLowerCase());
-                }
+        return mergeDefaults(getDefaultExcludeHeaders(), excludeHeaders, true);
+    }
+
+    /**
+     * 将自定义列表去重合并到默认列表
+     *
+     * @param defaults       默认列表
+     * @param custom         自定义列表
+     * @param toLowerCase    是否转小写后比对
+     */
+    private static List<String> mergeDefaults(List<String> defaults, List<String> custom, boolean toLowerCase) {
+        if (custom == null || custom.isEmpty()) {
+            return defaults;
+        }
+        for (String item : custom) {
+            String value = toLowerCase ? item.toLowerCase() : item;
+            if (!defaults.contains(value)) {
+                defaults.add(value);
             }
         }
-        return allHeaders;
+        return defaults;
     }
 }

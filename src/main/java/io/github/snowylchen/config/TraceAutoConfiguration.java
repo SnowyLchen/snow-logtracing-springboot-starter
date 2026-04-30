@@ -69,15 +69,21 @@ public class TraceAutoConfiguration {
     @ConditionalOnProperty(prefix = "snow.logtracing.trace.propagation", name = "rest-template", havingValue = "true", matchIfMissing = true)
     public BeanPostProcessor restTemplateTraceBeanPostProcessor(RestTemplateTraceInterceptor interceptor) {
         return new BeanPostProcessor() {
+            private final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TraceAutoConfiguration.class);
+
             @Override
             public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
                 if (bean instanceof RestTemplate) {
-                    RestTemplate restTemplate = (RestTemplate) bean;
-                    java.util.List interceptors = new ArrayList<>(restTemplate.getInterceptors());
-                    // 避免重复添加
-                    if (interceptors.stream().noneMatch(i -> i instanceof RestTemplateTraceInterceptor)) {
-                        interceptors.add(interceptor);
-                        restTemplate.setInterceptors(interceptors);
+                    try {
+                        RestTemplate restTemplate = (RestTemplate) bean;
+                        java.util.List interceptors = new ArrayList<>(restTemplate.getInterceptors());
+                        // 避免重复添加
+                        if (interceptors.stream().noneMatch(i -> i instanceof RestTemplateTraceInterceptor)) {
+                            interceptors.add(interceptor);
+                            restTemplate.setInterceptors(interceptors);
+                        }
+                    } catch (Exception e) {
+                        log.debug("[snow-logtracing] 为 RestTemplate [{}] 添加追踪拦截器失败", beanName, e);
                     }
                 }
                 return bean;

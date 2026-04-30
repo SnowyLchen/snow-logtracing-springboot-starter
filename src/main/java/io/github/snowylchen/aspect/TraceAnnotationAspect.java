@@ -35,33 +35,49 @@ public class TraceAnnotationAspect {
             return joinPoint.proceed();
         }
 
-        // 确定操作名
-        String operationName = trace.value();
-        if (operationName == null || operationName.trim().isEmpty()) {
+        SpanInfo span = null;
+        try {
+            // 确定操作名
+            String operationName = trace.value();
+            if (operationName == null || operationName.trim().isEmpty()) {
+                Signature signature = joinPoint.getSignature();
+                operationName = signature.getDeclaringType().getSimpleName() + "#" + signature.getName();
+            }
+
+            // 创建子 Span
+            span = context.startSpan(operationName, SpanKind.INTERNAL);
+
+            // 添加方法信息标签
             Signature signature = joinPoint.getSignature();
-            operationName = signature.getDeclaringType().getSimpleName() + "#" + signature.getName();
-        }
-
-        // 创建子 Span
-        SpanInfo span = context.startSpan(operationName, SpanKind.INTERNAL);
-
-        // 添加方法信息标签
-        Signature signature = joinPoint.getSignature();
-        if (signature instanceof MethodSignature) {
-            Method method = ((MethodSignature) signature).getMethod();
-            span.addTag("method.class", method.getDeclaringClass().getName());
-            span.addTag("method.name", method.getName());
+            if (signature instanceof MethodSignature) {
+                Method method = ((MethodSignature) signature).getMethod();
+                span.addTag("method.class", method.getDeclaringClass().getName());
+                span.addTag("method.name", method.getName());
+            }
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] @Trace Span 创建异常", e);
         }
 
         try {
             // 精确计时：只包裹 joinPoint.proceed()
             Object result = joinPoint.proceed();
-            context.finishSpan();
+            try {
+                if (span != null) {
+                    context.finishSpan();
+                }
+            } catch (Exception e) {
+                LOG.debug("[snow-logtracing] @Trace Span 结束异常", e);
+            }
             return result;
         } catch (Throwable e) {
-            span.markError(e.getMessage());
-            // 弹出栈中的 span（markError 已调用 finish，但需要弹出栈）
-            context.finishSpan();
+            try {
+                if (span != null) {
+                    span.markError(e.getMessage());
+                    context.finishSpan();
+                }
+            } catch (Exception ex) {
+                LOG.debug("[snow-logtracing] @Trace Span 异常处理失败", ex);
+            }
             throw e;
         }
     }

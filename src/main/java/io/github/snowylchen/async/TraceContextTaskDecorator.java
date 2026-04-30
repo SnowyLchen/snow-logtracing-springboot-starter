@@ -26,29 +26,47 @@ import java.util.Map;
  */
 public class TraceContextTaskDecorator implements TaskDecorator {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(TraceContextTaskDecorator.class);
+
     @Override
     public Runnable decorate(Runnable runnable) {
         // 在父线程中捕获上下文
-        TraceContext parentContext = TraceContext.getCurrent();
-        Map<String, String> parentMdc = MDC.getCopyOfContextMap();
+        TraceContext parentContext = null;
+        Map<String, String> parentMdc = null;
+        try {
+            parentContext = TraceContext.getCurrent();
+            parentMdc = MDC.getCopyOfContextMap();
+        } catch (Exception e) {
+            LOG.debug("[snow-logtracing] 捕获父线程上下文异常", e);
+        }
+
+        final TraceContext capturedContext = parentContext;
+        final Map<String, String> capturedMdc = parentMdc;
 
         return () -> {
             try {
                 // 在子线程中恢复上下文
-                if (parentContext != null) {
-                    // 创建子线程的上下文，共享 traceId
-                    TraceContext childContext = new TraceContext(parentContext.getTraceId());
-                    TraceContext.setCurrent(childContext);
-                }
-                if (parentMdc != null) {
-                    MDC.setContextMap(parentMdc);
+                try {
+                    if (capturedContext != null) {
+                        TraceContext childContext = new TraceContext(capturedContext.getTraceId());
+                        TraceContext.setCurrent(childContext);
+                    }
+                    if (capturedMdc != null) {
+                        MDC.setContextMap(capturedMdc);
+                    }
+                } catch (Exception e) {
+                    LOG.debug("[snow-logtracing] 子线程恢复上下文异常", e);
                 }
 
                 runnable.run();
             } finally {
                 // 子线程结束后清理，防止 ThreadLocal 泄漏
-                TraceContext.clear();
-                MDC.clear();
+                try {
+                    TraceContext.clear();
+                    MDC.clear();
+                } catch (Exception e) {
+                    LOG.debug("[snow-logtracing] 子线程清理上下文异常", e);
+                }
             }
         };
     }

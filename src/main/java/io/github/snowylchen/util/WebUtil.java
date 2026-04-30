@@ -162,7 +162,10 @@ public class WebUtil extends org.springframework.web.util.WebUtils {
      */
     public static String getHeader(String name) {
         HttpServletRequest request = getRequest();
-        return Objects.requireNonNull(request).getHeader(name);
+        if (request == null) {
+            return null;
+        }
+        return request.getHeader(name);
     }
 
     /**
@@ -173,7 +176,10 @@ public class WebUtil extends org.springframework.web.util.WebUtils {
      */
     public static Enumeration<String> getHeaders(String name) {
         HttpServletRequest request = getRequest();
-        return Objects.requireNonNull(request).getHeaders(name);
+        if (request == null) {
+            return null;
+        }
+        return request.getHeaders(name);
     }
 
     /**
@@ -183,7 +189,10 @@ public class WebUtil extends org.springframework.web.util.WebUtils {
      */
     public static Enumeration<String> getHeaderNames() {
         HttpServletRequest request = getRequest();
-        return Objects.requireNonNull(request).getHeaderNames();
+        if (request == null) {
+            return null;
+        }
+        return request.getHeaderNames();
     }
 
     /**
@@ -194,7 +203,10 @@ public class WebUtil extends org.springframework.web.util.WebUtils {
      */
     public static String getParameter(String name) {
         HttpServletRequest request = getRequest();
-        return Objects.requireNonNull(request).getParameter(name);
+        if (request == null) {
+            return null;
+        }
+        return request.getParameter(name);
     }
 
     /**
