@@ -7,7 +7,7 @@
     <url>https://github.com/SnowyLchen/snow-logtracing-springboot-starter</url>
     <groupId>io.github.snowylchen</groupId>
     <artifactId>snow-logtracing-springboot-starter</artifactId>
-    <version>1.0.2-jdk8</version>
+    <version>1.0.3-jdk8</version>
     <packaging>jar</packaging>
     <description>基于aop实现的系统日志以及脱敏插件，引入即用</description>
     <properties>

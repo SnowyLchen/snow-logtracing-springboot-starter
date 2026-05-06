@@ -62,6 +62,22 @@ public class LogTracingProperties {
     private TraceProperties trace = new TraceProperties();
 
     /**
+     * 系统操作日志配置
+     */
+    private SysLogProperties sysLog = new SysLogProperties();
+
+    /**
+     * 系统操作日志配置类
+     */
+    @Data
+    public static class SysLogProperties {
+        /**
+         * 是否启用系统操作日志，默认启用
+         */
+        private boolean enabled = true;
+    }
+
+    /**
      * HTTP 请求日志输出配置
      */
     @Data

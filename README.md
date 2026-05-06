@@ -8,6 +8,7 @@
 
 - **全链路追踪**：基于 TraceFilter + TraceContext 实现分布式追踪，自动生成/传播 TraceId，支持跨服务调用链串联，使用 `System.nanoTime()` 精确计时，输出 Span 树状耗时汇总。
 - **请求日志记录**：基于 AOP 切面自动拦截 Controller 层请求，记录请求地址、参数、Headers、响应结果等完整信息，支持敏感字段脱敏保护。
+- **系统操作日志**：基于 `@SysLog` 注解实现业务操作审计，支持 SpEL 表达式解析动态参数，提供 SPI 接口支持自定义日志持久化和操作人获取。
 
 ### 核心特性
 
@@ -15,11 +16,14 @@
 - **精确计时**：TraceFilter 使用 `System.nanoTime()` 计时，只包裹业务执行，不计入日志构建等额外开销
 - **方法级追踪**：`@Trace` 注解标注 Service/DAO 层方法，自动创建子 Span 记录耗时
 - **Span 树输出**：请求结束后输出完整的调用链树状结构，直观展示各层耗时分布
+- **业务审计日志**：通过 `@SysLog` 手动标注，记录“谁在什么时间做了什么操作”，支持 SpEL 动态描述（如 `删除用户 #{#id}`）
 - **自动记录**：零代码自动拦截所有 Controller 请求，记录完整的请求和响应信息
+- **SPI 扩展**：提供 `SysLogHandler` 和 `OperatorProvider` 接口，解耦存储媒介（MySQL/ES/MQ）与用户体系
 - **数据脱敏**：内置 password、token、secret 等敏感字段过滤，支持自定义扩展
 - **真实行号**：通过 ASM 字节码技术获取方法真实行号，支持 IDE 点击跳转
+- **异常安全**：插件内部逻辑全 try-catch 保护，任何插件异常绝不阻塞或中断业务流程
 - **跨服务传播**：自动为 RestTemplate、Feign 注入 trace header，无需手动传递
-- **异步支持**：TaskDecorator 自动传递追踪上下文到子线程
+- **异步支持**：自动开启 `@EnableAsync` 并提供 TaskDecorator，支持异步日志投递与追踪上下文传递
 - **即引即用**：零配置启动，所有功能默认开启
 
 ### 适用场景
@@ -44,6 +48,9 @@
 | **RestTemplateTraceInterceptor** | RestTemplate 拦截器，自动注入 trace header |
 | **FeignTraceInterceptor** | Feign 拦截器，自动注入 trace header |
 | **TraceContextTaskDecorator** | 异步线程上下文传递装饰器 |
+| **SysLogAspect** | `@SysLog` 注解的 AOP 切面处理，支持类级/方法级拦截 |
+| **SysLogExpressionEvaluator** | SpEL 表达式解析器，带编译缓存，用于解析动态描述 |
+| **SysLogEventListener** | 异步事件监听器，负责将日志分发给所有 `SysLogHandler` 实现 |
 
 ### 请求处理流程
 
@@ -86,7 +93,7 @@ TraceFilter（入口）
 
 ### 前置要求
 
-- Java 17+
+- Java 8
 - Spring Boot 3.x
 - Maven 3.0+
 
@@ -262,6 +269,83 @@ public class ThreadPoolConfig {
 
 配置后，异步线程中的日志也会携带与主线程相同的 traceId。
 
+### 步骤七：使用 @SysLog 记录业务操作日志
+
+`@SysLog` 用于记录具有业务语义的操作日志（如：新增用户、审核订单）。
+
+#### 1. 标注业务方法
+
+支持类级别（拦截所有 public 方法）和方法级别（覆盖类级配置）：
+
+```java
+@RestController
+@RequestMapping("/user")
+@SysLog(module = "用户管理") // 类级注解
+public class UserController {
+
+    @SysLog(value = "新增用户", type = OperationType.INSERT)
+    @PostMapping("/add")
+    public Result add(@RequestBody User user) { ... }
+
+    @SysLog(value = "删除用户 #{#id}", type = OperationType.DELETE) // 支持 SpEL
+    @DeleteMapping("/{id}")
+    public Result delete(@PathVariable Long id) { ... }
+}
+```
+
+#### 2. 自定义持久化（实现 SysLogHandler）
+
+Starter 默认不存储日志，需由使用者实现接口决定落库方式：
+
+```java
+@Component
+public class MySysLogHandler implements SysLogHandler {
+    @Override
+    public void handle(SysLogInfo logInfo) {
+        // 异步执行，可以存入 MySQL、ElasticSearch 或发送到 MQ
+        System.out.println("收到操作日志：" + logInfo.getDescription());
+    }
+}
+```
+
+#### 3. 关联操作人（实现 OperatorProvider）
+
+实现该接口以自动填充日志中的操作人 ID 和名称：
+
+```java
+@Component
+public class MyOperatorProvider implements OperatorProvider {
+    @Override
+    public String getOperatorId() {
+        return SecurityUtils.getUserId(); // 对接你的权限框架
+    }
+
+    @Override
+    public String getOperatorName() {
+        return SecurityUtils.getUserName();
+    }
+}
+```
+
+## 进阶技巧：自定义全局异常处理器携带 TraceId
+
+由于插件不再强制绑定异常返回格式，你可以非常方便地在自己的 `@ControllerAdvice` 中引入 `traceId`，从而保持全站响应结构一致：
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handle(Exception e) {
+        // 1. 调用插件提供的上下文工具获取当前 traceId
+        String traceId = TraceContext.currentTraceId();
+        
+        // 2. 返回你项目自定义的 Result 对象
+        return Result.fail(500, e.getMessage(), traceId);
+    }
+}
+```
+
 ## 配置参考
 
 ### 完整配置项
@@ -319,6 +403,10 @@ snow:
       # 异步线程上下文传递
       async:
         enabled: true               # 提供 TaskDecorator Bean，用于线程池传递 traceId，默认 true
+
+    # ===== 模块三：系统操作日志 (@SysLog) =====
+    sys-log:
+      enabled: true                 # 是否启用系统操作日志功能，默认启用
 ```
 
 > **配置独立性**：共有四个独立开关，互不影响：
@@ -492,6 +580,16 @@ String spanId = TraceContext.currentSpanId();
 两者配合使用：AOP 切面负责记录 HTTP 请求/响应的详细信息，`@Trace` 负责记录内部方法调用的耗时。
 
 ## 更新日志
+
+### v1.3.0
+
+**核心升级：新增业务审计日志模块 (@SysLog)**
+- 新增 `@SysLog` 注解，支持类级别与方法级别标注，支持 SpEL 表达式解析动态参数
+- 引入 SPI 扩展架构：通过 `SysLogHandler` 解耦日志存储，通过 `OperatorProvider` 解耦用户体系
+- 极致性能优化：SpEL 编译缓存、注解查找缓存、脱敏过滤器缓存，切面执行微秒级
+- 异步驱动：基于 Spring Event + `@Async` 实现日志投递，绝不阻塞业务线程
+- 异常安全增强：插件内部逻辑全方位 try-catch 保护，插件故障绝不影响业务运行
+- 自动开启异步：自动配置类注册 `@EnableAsync`，确保日志投递与异步上下文传播正常工作
 
 ### v1.2.1
 

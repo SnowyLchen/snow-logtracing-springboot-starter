@@ -1,2 +1,3 @@
 io.github.snowylchen.config.LogTracingAutoConfiguration
 io.github.snowylchen.config.TraceAutoConfiguration
+io.github.snowylchen.config.SysLogAutoConfiguration
