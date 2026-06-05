@@ -50,15 +50,39 @@ public class TraceAutoConfiguration {
     }
 
     // ==================== 跨服务传播 ====================
-
+    
     /**
      * RestTemplate 追踪拦截器
      */
     @Bean
     @ConditionalOnClass(RestTemplate.class)
     @ConditionalOnProperty(prefix = "snow.logtracing.trace.propagation", name = "rest-template", havingValue = "true", matchIfMissing = true)
-    public RestTemplateTraceInterceptor restTemplateTraceInterceptor() {
-        return new RestTemplateTraceInterceptor();
+    public RestTemplateTraceInterceptor restTemplateTraceInterceptor(
+            org.springframework.context.ApplicationEventPublisher publisher,
+            LogTracingProperties properties) {
+        return new RestTemplateTraceInterceptor(publisher, properties);
+    }
+
+    /**
+     * BeanPostProcessor: 自动将所有 RestTemplate Bean 的 RequestFactory 包装为 BufferingClientHttpRequestFactory
+     * 以支持第三方日志模块重复读取 response body。
+     */
+    @Bean
+    @ConditionalOnClass(RestTemplate.class)
+    @ConditionalOnProperty(prefix = "snow.logtracing.third-party", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public BeanPostProcessor restTemplateBufferingBeanPostProcessor() {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+                if (bean instanceof RestTemplate) {
+                    RestTemplate restTemplate = (RestTemplate) bean;
+                    if (!(restTemplate.getRequestFactory() instanceof org.springframework.http.client.BufferingClientHttpRequestFactory)) {
+                        restTemplate.setRequestFactory(new org.springframework.http.client.BufferingClientHttpRequestFactory(restTemplate.getRequestFactory()));
+                    }
+                }
+                return bean;
+            }
+        };
     }
 
     /**
@@ -105,6 +129,13 @@ public class TraceAutoConfiguration {
         @Bean
         public io.github.snowylchen.interceptor.FeignTraceInterceptor feignTraceInterceptor() {
             return new io.github.snowylchen.interceptor.FeignTraceInterceptor();
+        }
+
+        @Bean
+        @ConditionalOnProperty(prefix = "snow.logtracing.third-party", name = "enabled", havingValue = "true", matchIfMissing = true)
+        public io.github.snowylchen.interceptor.FeignThirdPartyLogger feignThirdPartyLogger(
+                org.springframework.context.ApplicationEventPublisher publisher) {
+            return new io.github.snowylchen.interceptor.FeignThirdPartyLogger(publisher);
         }
     }
 

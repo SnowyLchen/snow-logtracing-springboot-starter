@@ -67,12 +67,28 @@ public class LogTracingProperties {
     private SysLogProperties sysLog = new SysLogProperties();
 
     /**
+     * 第三方调用日志配置
+     */
+    private ThirdPartyProperties thirdParty = new ThirdPartyProperties();
+
+    /**
      * 系统操作日志配置类
      */
     @Data
     public static class SysLogProperties {
         /**
          * 是否启用系统操作日志，默认启用
+         */
+        private boolean enabled = true;
+    }
+
+    /**
+     * 第三方调用日志配置类
+     */
+    @Data
+    public static class ThirdPartyProperties {
+        /**
+         * 是否启用第三方调用日志，默认启用
          */
         private boolean enabled = true;
     }

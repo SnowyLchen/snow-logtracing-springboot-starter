@@ -18,6 +18,8 @@ public final class OperationType {
     public static final String EXPORT = "EXPORT";
     public static final String LOGIN = "LOGIN";
     public static final String LOGOUT = "LOGOUT";
+    public static final String STARTUP = "STARTUP";
+    public static final String SHUTDOWN = "SHUTDOWN";
     public static final String OTHER = "OTHER";
 
     private OperationType() {

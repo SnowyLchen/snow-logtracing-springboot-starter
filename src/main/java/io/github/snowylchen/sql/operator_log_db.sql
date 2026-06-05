@@ -1,0 +1,28 @@
+﻿CREATE TABLE `sys_operator_log`
+(
+    `id`             bigint   NOT NULL AUTO_INCREMENT,
+    `log_id`         varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci  DEFAULT NULL COMMENT '日志唯一 ID',
+    `trace_id`       varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci  DEFAULT NULL COMMENT '关联的 Trace ID，用于全链路排查',
+    `module`         varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '所属业务模块（如：用户管理）',
+    `operation_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci  DEFAULT NULL COMMENT '操作类型（如：INSERT/UPDATE/自定义类型）',
+    `description`    varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '操作描述（如：新增用户）',
+    `operator_id`    varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci  DEFAULT NULL COMMENT '操作人 ID',
+    `operator_name`  varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '操作人名称',
+    `request_url`    varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '请求的 URL',
+    `request_method` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci  DEFAULT NULL COMMENT 'HTTP 请求方法（GET/POST 等）',
+    `client_ip`      varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci  DEFAULT NULL COMMENT '客户端 IP 地址',
+    `user_agent`     varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '客户端 User-Agent',
+    `class_name`     varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '执行的类名',
+    `method_name`    varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '执行的方法名',
+    `params`         longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT '请求参数（已脱敏的 JSON）',
+    `success`        tinyint(1) DEFAULT '1' COMMENT '是否执行成功：1-成功，0-失败',
+    `cost_time`      bigint                                                        DEFAULT '0' COMMENT '方法执行耗时（毫秒）',
+    `result`         longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT '返回结果（已脱敏的 JSON）',
+    `error_message`  longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT '异常堆栈或错误信息',
+    `operate_time`   datetime NOT NULL COMMENT '操作发生时间',
+    PRIMARY KEY (`id`) USING BTREE,
+    KEY              `idx_operate_time` (`operate_time`) USING BTREE,
+    KEY              `idx_module_type` (`module`,`operation_type`) USING BTREE,
+    KEY              `idx_operator_id` (`operator_id`) USING BTREE,
+    KEY              `idx_trace_id` (`trace_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='系统业务操作审计日志表';

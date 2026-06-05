@@ -82,7 +82,7 @@ TraceFilter（入口）
 
 ### 技术栈
 
-- **Java 17+**
+- **Java 8**
 - **Spring Boot 3.2.0**
 - **Spring AOP**：面向切面编程
 - **FastJSON2 2.0.31**：JSON 序列化与反序列化
@@ -103,7 +103,7 @@ TraceFilter（入口）
 <dependency>
     <groupId>io.github.snowylchen</groupId>
     <artifactId>snow-logtracing-springboot-starter</artifactId>
-    <version>1.0.0-jdk17</version>
+    <version>1.0.3-jdk8</version>
 </dependency>
 ```
 
