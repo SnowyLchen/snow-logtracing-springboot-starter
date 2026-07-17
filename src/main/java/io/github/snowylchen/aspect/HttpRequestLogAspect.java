@@ -1,5 +1,6 @@
 package io.github.snowylchen.aspect;
 
+import cn.hutool.core.date.DateUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.filter.SimplePropertyPreFilter;
@@ -35,6 +36,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.snowylchen.util.LogUtil.*;
@@ -80,48 +82,50 @@ public class HttpRequestLogAspect {
                 return logBuffer;
             }
 
-            // 构建请求开始信息（使用边框样式）
-            logBuffer.append("\n").append(BORDER).append("\n");
-            logBuffer.append(GRAY).append("  ").append(WHITE_BOLD).append("请求开始").append(RESET).append("\n");
-            logBuffer.append(GRAY).append("  ─────────────────────────────────────────────────────────────────").append(RESET).append("\n");
+            // 构建请求开始信息
+            logBuffer.append(requestLog(REQUEST_START)).append("\n");
 
             // 添加 traceId 信息
             String traceId = TraceContext.currentTraceId();
             if (traceId != null) {
-                logBuffer.append(CYAN).append("  traceId   : ").append(RESET).append(traceId).append("\n");
+                logBuffer.append(buildThreadLog())
+                        .append("traceId: ").append(traceId).append("\n");
             }
+
+            ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
 
             // 根据配置动态添加字段
             if (shouldOutput("requestUrl")) {
-                logBuffer.append(GRAY).append("  请求地址   : ").append(RESET)
-                        .append(WHITE_BOLD).append(request.getMethod()).append(" ").append(request.getRequestURL().toString()).append(RESET).append("\n");
+                map.put("请求地址", request.getMethod() + " " + request.getRequestURL().toString());
             }
 
             if (shouldOutput("methodInfo")) {
-                logBuffer.append(GRAY).append("  类名方法   : ").append(RESET)
-                        .append(signature.getDeclaringTypeName()).append("#").append(name).append("\n");
+                map.put("类名方法", "(" + signature.getDeclaringTypeName() + "#" + name + ")");
             }
 
             // 获取方法的真实行号
             int lineNumber = getMethodLineNumber(signature);
             if (shouldOutput("lineInfo")) {
-                logBuffer.append(GRAY).append("  代码位置   : ").append(RESET)
-                        .append(signature.getDeclaringType().getSimpleName()).append(".java:").append(lineNumber).append("\n");
+                map.put("类名快捷跳转", "(" + signature.getDeclaringType().getSimpleName() + ".java:" + lineNumber + ")");
             }
 
             if (shouldOutput("remoteIp")) {
-                logBuffer.append(GRAY).append("  远程地址   : ").append(RESET).append(WebUtil.getIP(request)).append("\n");
+                map.put("远程地址", WebUtil.getIP(request));
             }
 
             if (shouldOutput("headers")) {
-                logBuffer.append(GRAY).append("  请求头信息 : ").append(RESET).append(extractHeadersInfo(request)).append("\n");
+                map.put("请求头信息", extractHeadersInfo(request));
             }
 
             if (shouldOutput("params")) {
-                logBuffer.append(GRAY).append("  请求参数   : ").append(RESET).append(buildRequestParam(joinPoint)).append("\n");
+                map.put("请求的参数", buildRequestParam(joinPoint));
             }
 
-            logBuffer.append(BORDER);
+            // 构建彩色的时间戳和线程信息
+            for (Map.Entry<String, String> mp : map.entrySet()) {
+                logBuffer.append(buildThreadLog())
+                        .append(mp.getKey()).append(": ").append(mp.getValue()).append("\n");
+            }
             LOG.info(logBuffer.toString());
         } catch (Exception e) {
             LOG.debug("[snow-logtracing] 构建请求日志异常", e);
@@ -189,6 +193,20 @@ public class HttpRequestLogAspect {
         return 1;
     }
 
+
+    public static StringBuilder buildThreadLog() {
+        StringBuilder logBuffer = new StringBuilder();
+        // 构建彩色的时间戳和线程信息
+        String colorfulTimestamp = DateUtil.now();
+        String threadInfo = Thread.currentThread().getName();
+        String colorfulThreadInfo = String.format(BLUE_LOG, threadInfo);
+        logBuffer.append(colorfulTimestamp).append("\t")
+                .append("[")
+                .append(colorfulThreadInfo).append("]\t")
+                .append(String.format(GREEN_LOG, HttpRequestLogAspect.class.getName())).append("\t")
+                .append("\t:");
+        return logBuffer;
+    }
 
     @Around("controllerPointcut()")
     public Object doAround(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
