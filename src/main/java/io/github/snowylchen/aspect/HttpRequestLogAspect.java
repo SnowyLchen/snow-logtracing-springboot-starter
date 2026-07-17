@@ -194,17 +194,9 @@ public class HttpRequestLogAspect {
     }
 
     public static StringBuilder buildThreadLog() {
-        StringBuilder logBuffer = new StringBuilder();
-        // 构建彩色的时间戳和线程信息
-        String colorfulTimestamp = DateUtil.now();
-        String threadInfo = Thread.currentThread().getName();
-        String colorfulThreadInfo = String.format(BLUE_LOG, threadInfo);
-        logBuffer.append(colorfulTimestamp).append("\t")
-                .append("[")
-                .append(colorfulThreadInfo).append("]\t")
-                .append(String.format(GREEN_LOG, HttpRequestLogAspect.class.getName())).append("\t")
-                .append("\t:");
-        return logBuffer;
+        // 时间戳、线程名、类名由 logback 负责输出，这里只返回空字符串
+        // 避免与 logback 输出的信息重复
+        return new StringBuilder();
     }
 
     @Around("controllerPointcut()")
@@ -355,23 +347,15 @@ public class HttpRequestLogAspect {
                 LOG.debug("[snow-logtracing] 结束 Controller Span 异常", e);
             }
 
-            // 输出响应日志
+            // 存储响应体到 TraceContext，供 TraceFilter 汇总输出（不再单独输出日志）
             try {
-                StringBuilder responseLog = LOG_BUFFER.get();
-                responseLog.setLength(0);
-
-                // 检查是否需要输出响应结果
                 boolean needResponse = shouldOutput("response") && (result != null);
-
-                if (needResponse) {
-                    responseLog.append(buildThreadLog())
-                            .append("返回的结果: ")
-                            .append(JSON.toJSONString(result, buildSensitiveInfoFilter()))
-                            .append("\n");
-                    LOG.info(responseLog.toString());
+                if (needResponse && context != null) {
+                    String responseJson = JSON.toJSONString(result, buildSensitiveInfoFilter());
+                    context.setResponseBody(responseJson);
                 }
             } catch (Exception e) {
-                LOG.debug("[snow-logtracing] 输出响应日志异常", e);
+                LOG.debug("[snow-logtracing] 存储响应体异常", e);
             }
 
             return result;

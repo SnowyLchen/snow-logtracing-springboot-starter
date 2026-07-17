@@ -15,6 +15,7 @@ public class TraceContext {
     private final String traceId;
     private final Deque<SpanInfo> spanStack = new ArrayDeque<>();
     private SpanInfo rootSpan;
+    private String responseBody;
 
     public TraceContext(String traceId) {
         this.traceId = traceId;
@@ -120,6 +121,20 @@ public class TraceContext {
 
     public SpanInfo getRootSpan() {
         return rootSpan;
+    }
+
+    /**
+     * 设置响应体（用于在追踪汇总中输出）
+     */
+    public void setResponseBody(String responseBody) {
+        this.responseBody = responseBody;
+    }
+
+    /**
+     * 获取响应体
+     */
+    public String getResponseBody() {
+        return responseBody;
     }
 
     /**

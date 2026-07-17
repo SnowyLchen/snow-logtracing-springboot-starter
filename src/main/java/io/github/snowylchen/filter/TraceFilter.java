@@ -239,6 +239,13 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
             buildSpanTree(sb, rootSpan, "  ", true);
         }
 
+        // 输出响应体（如果有）
+        String responseBody = context.getResponseBody();
+        if (responseBody != null && !responseBody.isEmpty()) {
+            sb.append(GRAY).append("  ─────────────────────────────────────────────────────────────────").append(RESET).append("\n");
+            sb.append(CYAN).append("  返回结果 : ").append(RESET).append(responseBody).append("\n");
+        }
+
         sb.append(BORDER);
         LOG.info(sb.toString());
     }

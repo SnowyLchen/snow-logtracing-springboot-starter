@@ -16,7 +16,6 @@ import lombok.extern.slf4j.Slf4j;
 public class LogUtil {
     public static final String UNKNOWN = "unknown";
     public static final String REQUEST_START = " 请求开始 ";
-    public static final String REQUEST_END = " 总耗时：{0}ms ";
     public static final String BLUE_LOG = "\u001B[34m%s\u001B[0m";
     public static final String GREEN_LOG = "\u001B[36m%s\u001B[0m";
 
@@ -56,10 +55,6 @@ public class LogUtil {
         sb.append(log);
         for (int j = 0; j < i; j++) {
             sb.append("=");
-            // 如果是结束日志，增加换行
-            if (j == i - 1 && log.equals(REQUEST_END)) {
-                sb.append("\n\n");
-            }
         }
         return sb.toString();
     }
