@@ -5,6 +5,8 @@ import io.github.snowylchen.trace.SpanInfo;
 import io.github.snowylchen.trace.SpanKind;
 import io.github.snowylchen.trace.TraceContext;
 import io.github.snowylchen.trace.TraceIdGenerator;
+
+import static io.github.snowylchen.util.LogUtil.*;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -175,17 +177,6 @@ public class TraceFilter extends OncePerRequestFilter implements Ordered {
     }
 
     // ========================== 日志输出 ==========================
-
-    // ANSI 颜色常量
-    private static final String RESET = "\u001B[0m";
-    private static final String CYAN = "\u001B[36m";
-    private static final String GREEN = "\u001B[32m";
-    private static final String YELLOW = "\u001B[33m";
-    private static final String RED = "\u001B[31m";
-    private static final String GRAY = "\u001B[90m";
-    private static final String WHITE_BOLD = "\u001B[1;37m";
-
-    private static final String BORDER = GRAY + "═══════════════════════════════════════════════════════════════════════" + RESET;
 
     /**
      * 根据 timing/trace 开启状态输出不同格式的汇总日志

@@ -1,6 +1,5 @@
 package io.github.snowylchen.aspect;
 
-import cn.hutool.core.date.DateUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.alibaba.fastjson2.filter.SimplePropertyPreFilter;
@@ -36,7 +35,6 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.snowylchen.util.LogUtil.*;
@@ -82,50 +80,48 @@ public class HttpRequestLogAspect {
                 return logBuffer;
             }
 
-            // 构建请求开始信息
-            logBuffer.append(requestLog(REQUEST_START)).append("\n");
+            // 构建请求开始信息（使用边框样式）
+            logBuffer.append("\n").append(BORDER).append("\n");
+            logBuffer.append(GRAY).append("  ").append(WHITE_BOLD).append("请求开始").append(RESET).append("\n");
+            logBuffer.append(GRAY).append("  ─────────────────────────────────────────────────────────────────").append(RESET).append("\n");
 
             // 添加 traceId 信息
             String traceId = TraceContext.currentTraceId();
             if (traceId != null) {
-                logBuffer.append(buildThreadLog())
-                        .append("traceId: ").append(traceId).append("\n");
+                logBuffer.append(CYAN).append("  traceId   : ").append(RESET).append(traceId).append("\n");
             }
-
-            ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
 
             // 根据配置动态添加字段
             if (shouldOutput("requestUrl")) {
-                map.put("请求地址", request.getMethod() + " " + request.getRequestURL().toString());
+                logBuffer.append(GRAY).append("  请求地址   : ").append(RESET)
+                        .append(WHITE_BOLD).append(request.getMethod()).append(" ").append(request.getRequestURL().toString()).append(RESET).append("\n");
             }
 
             if (shouldOutput("methodInfo")) {
-                map.put("类名方法", "(" + signature.getDeclaringTypeName() + "#" + name + ")");
+                logBuffer.append(GRAY).append("  类名方法   : ").append(RESET)
+                        .append(signature.getDeclaringTypeName()).append("#").append(name).append("\n");
             }
 
             // 获取方法的真实行号
             int lineNumber = getMethodLineNumber(signature);
             if (shouldOutput("lineInfo")) {
-                map.put("类名快捷跳转", "(" + signature.getDeclaringType().getSimpleName() + ".java:" + lineNumber + ")");
+                logBuffer.append(GRAY).append("  代码位置   : ").append(RESET)
+                        .append(signature.getDeclaringType().getSimpleName()).append(".java:").append(lineNumber).append("\n");
             }
 
             if (shouldOutput("remoteIp")) {
-                map.put("远程地址", WebUtil.getIP(request));
+                logBuffer.append(GRAY).append("  远程地址   : ").append(RESET).append(WebUtil.getIP(request)).append("\n");
             }
 
             if (shouldOutput("headers")) {
-                map.put("请求头信息", extractHeadersInfo(request));
+                logBuffer.append(GRAY).append("  请求头信息 : ").append(RESET).append(extractHeadersInfo(request)).append("\n");
             }
 
             if (shouldOutput("params")) {
-                map.put("请求的参数", buildRequestParam(joinPoint));
+                logBuffer.append(GRAY).append("  请求参数   : ").append(RESET).append(buildRequestParam(joinPoint)).append("\n");
             }
 
-            // 构建彩色的时间戳和线程信息
-            for (Map.Entry<String, String> mp : map.entrySet()) {
-                logBuffer.append(buildThreadLog())
-                        .append(mp.getKey()).append(": ").append(mp.getValue()).append("\n");
-            }
+            logBuffer.append(BORDER);
             LOG.info(logBuffer.toString());
         } catch (Exception e) {
             LOG.debug("[snow-logtracing] 构建请求日志异常", e);
@@ -193,11 +189,6 @@ public class HttpRequestLogAspect {
         return 1;
     }
 
-    public static StringBuilder buildThreadLog() {
-        // 时间戳、线程名、类名由 logback 负责输出，这里只返回空字符串
-        // 避免与 logback 输出的信息重复
-        return new StringBuilder();
-    }
 
     @Around("controllerPointcut()")
     public Object doAround(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
